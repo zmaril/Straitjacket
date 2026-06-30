@@ -1,5 +1,11 @@
 # straitjacket
 
+<p align="center">
+  <img src="assets/strait-waistcoat.jpg" alt="Engraving of a patient restrained in a strait-waistcoat" width="320">
+  <br>
+  <em><sub>Insane patient in a strait-waistcoat. Wellcome Collection (L0011301), <a href="https://creativecommons.org/licenses/by/4.0">CC BY 4.0</a>, via <a href="https://commons.wikimedia.org/wiki/File:Insane_patient_in_a_strait-waistcoat._Wellcome_L0011301.jpg">Wikimedia Commons</a>.</sub></em>
+</p>
+
 A fast, deterministic scanner that flags weird code LLMs tend to generate — before it lands. Think of it as a secret-scanner, but for slop: it sweeps your source with a set of pattern rules and fails CI when it finds the tells.
 
 It's a single static Rust binary with no runtime dependencies, so it drops into any repo's CI regardless of language or stack.
@@ -117,4 +123,6 @@ For another high-signal LLM tell, pair straitjacket with **[jscpd](https://githu
 
 ## License
 
-MIT
+Code is MIT.
+
+The banner image (`assets/strait-waistcoat.jpg`) — *Insane patient in a strait-waistcoat*, [Wellcome Collection](https://wellcomecollection.org/works/ckwscya3) (L0011301) — is licensed [CC BY 4.0](https://creativecommons.org/licenses/by/4.0) and is **not** covered by the MIT license; reuse it under its own terms.
