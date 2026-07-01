@@ -111,10 +111,14 @@ fn judge_motion(caps: &Captures) -> Option<String> {
 pub fn pattern_rules() -> Vec<Box<dyn Rule>> {
     vec![
         Box::new(RegexRule::new(
-            "hex-color",
-            "hardcoded hex color literal — use a theme token / CSS variable so it stays themeable.",
+            "color",
+            "hardcoded color literal (hex / rgb / hsl / oklch / …) — use a theme token or CSS variable so it stays themeable.",
             WEB_EXTS,
-            r"#(?:[0-9a-fA-F]{8}|[0-9a-fA-F]{6}|[0-9a-fA-F]{4}|[0-9a-fA-F]{3})\b",
+            // Hex (#rgb…#rrggbbaa), a CSS color function, or the `color()` function.
+            // Function names are lowercase only, so PascalCase constructors like
+            // `Color(...)` aren't mistaken for colors; and `color(` must be followed
+            // by a real color-space keyword, so English like "color(s)" is ignored.
+            r"#(?:[0-9a-fA-F]{8}|[0-9a-fA-F]{6}|[0-9a-fA-F]{4}|[0-9a-fA-F]{3})\b|\b(?:rgba?|hsla?|hwb|lab|lch|oklab|oklch)\([^)\n]*\)|\bcolor\(\s*(?:from|srgb(?:-linear)?|display-p3|a98-rgb|prophoto-rgb|rec2020|xyz(?:-d50|-d65)?)\b[^)\n]*\)",
             whole,
         )),
         Box::new(RegexRule::new(

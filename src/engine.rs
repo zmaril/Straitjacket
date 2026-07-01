@@ -12,8 +12,13 @@ use anyhow::Result;
 use regex::RegexSet;
 
 use crate::config::Config;
-use crate::finding::Finding;
+use crate::finding::{Finding, Severity};
+use crate::react::{
+    self, ComponentIndex, EFFECT_ID, ONE_COMPONENT_ID, PROP_DRILLING_ID, REACT_EXTS,
+    STORE_PASSTHROUGH_ID,
+};
 use crate::rules::{line_rules, LineHit, Rule};
+use crate::slop_prose::{SlopProse, PROSE_EXTS};
 
 /// Line-scoped escape hatch. `straitjacket-allow` on a line suppresses every rule
 /// for that line; `straitjacket-allow:<id>` suppresses only the named rule.
@@ -21,11 +26,17 @@ const ALLOW: &str = "straitjacket-allow";
 
 /// Whole-file escape hatch. `straitjacket-allow-file` anywhere in a file suppresses
 /// every rule for the file; `straitjacket-allow-file:<id>` suppresses one rule. This
-/// is how you exempt, say, a palette file from `hex-color` without per-line markers.
+/// is how you exempt, say, a palette file from `color` without per-line markers.
 const ALLOW_FILE: &str = "straitjacket-allow-file";
 
 /// Id of the whole-file line-count rule.
 const FILE_SIZE_ID: &str = "file-size";
+
+/// Id of the whole-text prose analyzer.
+const SLOP_PROSE_ID: &str = "slop-prose";
+
+/// Id of the cross-file copy/paste detector.
+const DUPLICATION_ID: &str = "duplication";
 
 /// Extensions the `file-size` rule applies to — source, config and docs where a
 /// huge single file is a smell (not lockfiles, data dumps, or binaries).
@@ -49,12 +60,27 @@ pub struct Engine {
     /// `file-size` line budget, and whether the rule is enabled.
     max_lines: usize,
     file_size_enabled: bool,
+    /// The `slop-prose` analyzer, present only when enabled.
+    slop_prose: Option<SlopProse>,
+    /// `Some(min_tokens)` when the cross-file `duplication` rule is enabled. Run by
+    /// the caller (it's a whole-run analysis over the scan paths), not per file.
+    duplication: Option<usize>,
+    /// Skip `.json` files entirely (generated/config data, not human-written).
+    skip_json: bool,
+    /// React AST rules, enabled independently.
+    one_component: bool,
+    effect_in_component: bool,
+    prop_drilling: bool,
+    store_passthrough: bool,
+    /// Cross-file component index for the forwarding rules; set by the caller after
+    /// collecting the file list (the rules need every local component's props).
+    component_index: Option<ComponentIndex>,
 }
 
 impl Engine {
     /// Build an engine from a [`Config`].
     pub fn new(config: &Config) -> Result<Self> {
-        let rules = line_rules(config.emoji_in_markdown);
+        let rules = line_rules();
         let mut patterns = Vec::new();
         let mut set_to_rule = Vec::new();
         let mut nonregex = Vec::new();
@@ -77,28 +103,103 @@ impl Engine {
             enabled,
             max_lines: config.max_lines.unwrap_or(usize::MAX),
             file_size_enabled: config.max_lines.is_some(),
+            slop_prose: config
+                .slop_prose
+                .then(|| SlopProse::new(config.prose_window)),
+            duplication: config.duplication.then_some(config.dup_min_tokens),
+            skip_json: config.skip_json,
+            one_component: config.one_component,
+            effect_in_component: config.effect_in_component,
+            prop_drilling: config.prop_drilling,
+            store_passthrough: config.store_passthrough,
+            component_index: None,
         })
     }
 
-    /// All rule ids, in declaration order, ending with `file-size`.
+    /// Whether the forwarding rules are on (so the caller knows to build & set the
+    /// cross-file component index).
+    pub fn needs_component_index(&self) -> bool {
+        self.prop_drilling || self.store_passthrough
+    }
+
+    /// Provide the cross-file component index the forwarding rules consult.
+    pub fn set_component_index(&mut self, index: ComponentIndex) {
+        self.component_index = Some(index);
+    }
+
+    /// Min-token threshold if the cross-file `duplication` rule is enabled.
+    pub fn duplication(&self) -> Option<usize> {
+        self.duplication
+    }
+
+    /// Whether `.json` files are skipped (so the caller can mirror it for the
+    /// cross-file duplication pass).
+    pub fn skip_json(&self) -> bool {
+        self.skip_json
+    }
+
+    /// Extensions the caller should not read at all under the current config.
+    fn ext_skipped(&self, ext: &str) -> bool {
+        self.skip_json && ext == "json"
+    }
+
+    /// All rule ids, ending with the whole-file / whole-run rules that are enabled.
     pub fn rule_ids(&self) -> Vec<&'static str> {
         let mut ids: Vec<&'static str> = self.rules.iter().map(|r| r.id()).collect();
         ids.push(FILE_SIZE_ID);
+        if self.slop_prose.is_some() {
+            ids.push(SLOP_PROSE_ID);
+        }
+        if self.duplication.is_some() {
+            ids.push(DUPLICATION_ID);
+        }
+        if self.one_component {
+            ids.push(ONE_COMPONENT_ID);
+        }
+        if self.effect_in_component {
+            ids.push(EFFECT_ID);
+        }
+        if self.prop_drilling {
+            ids.push(PROP_DRILLING_ID);
+        }
+        if self.store_passthrough {
+            ids.push(STORE_PASSTHROUGH_ID);
+        }
         ids
     }
 
     /// Human-facing description for a rule id, if present.
     pub fn message_for(&self, id: &str) -> Option<String> {
-        if id == FILE_SIZE_ID {
-            return Some(format!(
+        match id {
+            FILE_SIZE_ID => Some(format!(
                 "file longer than {} lines — sprawling single files are a common LLM tell; split it up.",
                 self.max_lines
-            ));
+            )),
+            SLOP_PROSE_ID => Some(
+                "prose that reads like LLM output — machine artifacts hard-fail; a high density of style tells warns/fails.".to_string(),
+            ),
+            DUPLICATION_ID => Some(format!(
+                "copy/pasted code — any clone of {}+ tokens fails; a structure may appear only once.",
+                self.duplication.unwrap_or(0)
+            )),
+            ONE_COMPONENT_ID => {
+                Some("more than one React component in a .tsx/.jsx file.".to_string())
+            }
+            EFFECT_ID => {
+                Some("useEffect in a file with a component — extract it to a named hook.".to_string())
+            }
+            PROP_DRILLING_ID => Some(
+                "a prop forwarded unchanged into a child component and never used here — a pure conduit; lift it into a store or context.".to_string(),
+            ),
+            STORE_PASSTHROUGH_ID => Some(
+                "a store value passed unchanged into a child component — have the child read the store directly.".to_string(),
+            ),
+            _ => self
+                .rules
+                .iter()
+                .find(|r| r.id() == id)
+                .map(|r| r.message().to_string()),
         }
-        self.rules
-            .iter()
-            .find(|r| r.id() == id)
-            .map(|r| r.message().to_string())
     }
 
     /// Restrict to exactly `ids` (others disabled). Returns ids that don't exist.
@@ -107,6 +208,17 @@ impl Engine {
             self.enabled[i] = ids.iter().any(|id| id == rule.id());
         }
         self.file_size_enabled = self.file_size_enabled && ids.iter().any(|id| id == FILE_SIZE_ID);
+        if !ids.iter().any(|id| id == SLOP_PROSE_ID) {
+            self.slop_prose = None;
+        }
+        if !ids.iter().any(|id| id == DUPLICATION_ID) {
+            self.duplication = None;
+        }
+        self.one_component = self.one_component && ids.iter().any(|id| id == ONE_COMPONENT_ID);
+        self.effect_in_component = self.effect_in_component && ids.iter().any(|id| id == EFFECT_ID);
+        self.prop_drilling = self.prop_drilling && ids.iter().any(|id| id == PROP_DRILLING_ID);
+        self.store_passthrough =
+            self.store_passthrough && ids.iter().any(|id| id == STORE_PASSTHROUGH_ID);
         self.unknown(ids)
     }
 
@@ -120,11 +232,41 @@ impl Engine {
         if ids.iter().any(|id| id == FILE_SIZE_ID) {
             self.file_size_enabled = false;
         }
+        if ids.iter().any(|id| id == SLOP_PROSE_ID) {
+            self.slop_prose = None;
+        }
+        if ids.iter().any(|id| id == DUPLICATION_ID) {
+            self.duplication = None;
+        }
+        if ids.iter().any(|id| id == ONE_COMPONENT_ID) {
+            self.one_component = false;
+        }
+        if ids.iter().any(|id| id == EFFECT_ID) {
+            self.effect_in_component = false;
+        }
+        if ids.iter().any(|id| id == PROP_DRILLING_ID) {
+            self.prop_drilling = false;
+        }
+        if ids.iter().any(|id| id == STORE_PASSTHROUGH_ID) {
+            self.store_passthrough = false;
+        }
         self.unknown(ids)
     }
 
+    /// Ids the user named that don't correspond to any rule. Checks against *all*
+    /// rule ids regardless of enabled state, so skipping a whole-run rule (which
+    /// disables it) doesn't then report it as unknown.
     fn unknown(&self, ids: &[String]) -> Vec<String> {
-        let known = self.rule_ids();
+        let mut known: Vec<&str> = self.rules.iter().map(|r| r.id()).collect();
+        known.extend([
+            FILE_SIZE_ID,
+            SLOP_PROSE_ID,
+            DUPLICATION_ID,
+            ONE_COMPONENT_ID,
+            EFFECT_ID,
+            PROP_DRILLING_ID,
+            STORE_PASSTHROUGH_ID,
+        ]);
         ids.iter()
             .filter(|id| !known.contains(&id.as_str()))
             .cloned()
@@ -134,17 +276,32 @@ impl Engine {
     /// Does any enabled rule look at this extension? Lets the caller skip reading
     /// files nothing will scan.
     pub fn handles_ext(&self, ext: &str) -> bool {
+        if self.ext_skipped(ext) {
+            return false;
+        }
         self.rules
             .iter()
             .enumerate()
             .any(|(i, r)| self.enabled[i] && r.applies_to_ext(ext))
             || (self.file_size_enabled && SIZE_EXTS.contains(&ext))
+            || (self.slop_prose.is_some() && PROSE_EXTS.contains(&ext))
+            || (self.react_enabled() && REACT_EXTS.contains(&ext))
+    }
+
+    fn react_enabled(&self) -> bool {
+        self.one_component
+            || self.effect_in_component
+            || self.prop_drilling
+            || self.store_passthrough
     }
 
     /// Scan one file's text. `path` is the display path; `ext` is lowercased and
     /// dot-free.
     pub fn scan_text(&self, text: &str, path: &str, ext: &str) -> Vec<Finding> {
         let mut findings = Vec::new();
+        if self.ext_skipped(ext) {
+            return findings;
+        }
 
         // Which line rules are live for this file (enabled + applicable extension).
         let applies: Vec<bool> = self
@@ -154,7 +311,9 @@ impl Engine {
             .map(|(i, r)| self.enabled[i] && r.applies_to_ext(ext))
             .collect();
         let size_applies = self.file_size_enabled && SIZE_EXTS.contains(&ext);
-        if applies.iter().all(|b| !b) && !size_applies {
+        let prose_applies = self.slop_prose.is_some() && PROSE_EXTS.contains(&ext);
+        let react_applies = self.react_enabled() && REACT_EXTS.contains(&ext);
+        if applies.iter().all(|b| !b) && !size_applies && !prose_applies && !react_applies {
             return findings;
         }
 
@@ -169,24 +328,22 @@ impl Engine {
         let mut total_lines = 0;
         for (idx, line) in text.lines().enumerate() {
             total_lines = idx + 1;
-            let lineno = idx + 1;
-            let allow = line_scope(line);
+            let ctx = LineCtx {
+                line,
+                lineno: idx + 1,
+                path,
+                applies: &applies,
+                allow: line_scope(line),
+                file_allow: &file_allow,
+            };
 
-            // Regex-backed rules: the RegexSet tells us which could match this line.
+            // Regex-backed rules: the RegexSet says which could match this line;
+            // non-regex rules (emoji) always run. Both go through `consider`.
             for set_i in self.set.matches(line).into_iter() {
-                let ri = self.set_to_rule[set_i];
-                let id = self.rules[ri].id();
-                if applies[ri] && !file_allow.covers(id) && !scope_covers(&allow, id) {
-                    self.collect(ri, line, lineno, path, &mut findings);
-                }
+                self.consider(self.set_to_rule[set_i], &ctx, &mut findings);
             }
-
-            // Non-regex rules (emoji): always evaluated when applicable.
             for &ri in &self.nonregex {
-                let id = self.rules[ri].id();
-                if applies[ri] && !file_allow.covers(id) && !scope_covers(&allow, id) {
-                    self.collect(ri, line, lineno, path, &mut findings);
-                }
+                self.consider(ri, &ctx, &mut findings);
             }
         }
 
@@ -202,27 +359,72 @@ impl Engine {
                     "file has {total_lines} lines, over the {}-line limit — sprawling single files are a common LLM tell; split it up.",
                     self.max_lines
                 ),
+                severity: Severity::Error,
             });
+        }
+
+        // Whole-text prose analyzer.
+        if prose_applies && !file_allow.covers(SLOP_PROSE_ID) {
+            if let Some(sp) = &self.slop_prose {
+                findings.extend(sp.scan(text, path));
+            }
+        }
+
+        // React AST rules (.tsx/.jsx). Honour both file- and line-scoped allows.
+        if react_applies {
+            let one_component = self.one_component && !file_allow.covers(ONE_COMPONENT_ID);
+            let effect = self.effect_in_component && !file_allow.covers(EFFECT_ID);
+            let drilling = self.prop_drilling && !file_allow.covers(PROP_DRILLING_ID);
+            let store = self.store_passthrough && !file_allow.covers(STORE_PASSTHROUGH_ID);
+            if one_component || effect || drilling || store {
+                let idx = self.component_index.as_ref();
+                for f in react::analyze(text, path, one_component, effect, drilling, store, idx) {
+                    let allowed = text
+                        .lines()
+                        .nth(f.line - 1)
+                        .is_some_and(|l| scope_covers(&line_scope(l), &f.rule));
+                    if !allowed {
+                        findings.push(f);
+                    }
+                }
+            }
         }
 
         findings
     }
 
-    fn collect(&self, ri: usize, line: &str, lineno: usize, path: &str, out: &mut Vec<Finding>) {
+    /// Run one line rule (by index) against a line, honouring extension
+    /// applicability and the line/file allow markers, appending any findings.
+    fn consider(&self, ri: usize, ctx: &LineCtx, out: &mut Vec<Finding>) {
+        let id = self.rules[ri].id();
+        if !ctx.applies[ri] || ctx.file_allow.covers(id) || scope_covers(&ctx.allow, id) {
+            return;
+        }
         let rule = &self.rules[ri];
         let mut hits: Vec<LineHit> = Vec::new();
-        rule.scan_line(line, &mut hits);
+        rule.scan_line(ctx.line, &mut hits);
         for hit in hits {
             out.push(Finding {
                 rule: rule.id().to_string(),
-                path: path.to_string(),
-                line: lineno,
+                path: ctx.path.to_string(),
+                line: ctx.lineno,
                 col: hit.col,
                 matched: hit.matched,
                 message: rule.message().to_string(),
+                severity: Severity::Error,
             });
         }
     }
+}
+
+/// Per-line context shared by every line rule via [`Engine::consider`].
+struct LineCtx<'a> {
+    line: &'a str,
+    lineno: usize,
+    path: &'a str,
+    applies: &'a [bool],
+    allow: Scope,
+    file_allow: &'a FileAllow,
 }
 
 /// What a `straitjacket-allow[-file]` marker covers.

@@ -41,8 +41,8 @@ pub trait Rule: Sync + Send {
 /// `font-family` stacks, and ad-hoc CSS motion. Order is stable (used in output).
 /// (The whole-file `file-size` rule lives on the [`Engine`](crate::Engine), not
 /// here, since it isn't a per-line check.)
-pub fn line_rules(emoji_in_markdown: bool) -> Vec<Box<dyn Rule>> {
-    let mut rules: Vec<Box<dyn Rule>> = vec![Box::new(emoji::EmojiRule::new(emoji_in_markdown))];
+pub fn line_rules() -> Vec<Box<dyn Rule>> {
+    let mut rules: Vec<Box<dyn Rule>> = vec![Box::new(emoji::EmojiRule)];
     rules.extend(patterns::pattern_rules());
     rules
 }

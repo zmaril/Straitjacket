@@ -1,8 +1,7 @@
-//! Emoji rule: flag emoji glyphs in code. LLMs love to decorate source, comments,
-//! and log lines with color emoji — it renders inconsistently across platforms and
-//! is a reliable tell. This is the most universal slop signal, so it runs on a broad
-//! set of code/source extensions (but not docs like `.md`, where emoji are often
-//! intentional).
+//! Emoji rule: flag emoji glyphs in code and docs. LLMs love to decorate source,
+//! comments, log lines, and Markdown with color emoji — it renders inconsistently
+//! across platforms and is a reliable tell. This is the most universal slop signal,
+//! so it runs on a broad set of code/source extensions plus Markdown.
 //!
 //! What counts as an emoji here is deliberately narrower than Unicode's broad
 //! `Emoji` property, which also covers ASCII digits, `#`, `*`, and text-default
@@ -17,15 +16,13 @@ use unic_emoji_char::{is_emoji, is_emoji_presentation};
 
 const VS16: char = '\u{FE0F}'; // variation selector-16: forces emoji presentation
 
-/// Extensions the emoji rule scans by default. Code and stylesheet sources.
+/// Extensions the emoji rule scans: code and stylesheet sources, plus Markdown
+/// (docs and READMEs are exactly where stray LLM emoji are least welcome).
 const EXTS: &[&str] = &[
     "ts", "tsx", "js", "jsx", "mjs", "cjs", "css", "scss", "sass", "less", "vue", "svelte", "py",
     "rb", "go", "rs", "java", "kt", "kts", "swift", "c", "h", "cc", "cpp", "hpp", "cs", "php",
-    "sh", "bash", "zsh", "sql",
+    "sh", "bash", "zsh", "sql", "md", "markdown", "mdx",
 ];
-
-/// Markdown/prose extensions — scanned only when emoji-in-markdown is enabled.
-const MARKDOWN_EXTS: &[&str] = &["md", "markdown", "mdx"];
 
 fn is_emoji_glyph(c: char, followed_by_vs16: bool) -> bool {
     // Regional indicators (used to build flag emoji).
@@ -41,16 +38,7 @@ fn is_emoji_glyph(c: char, followed_by_vs16: bool) -> bool {
     followed_by_vs16 && is_emoji(c)
 }
 
-pub struct EmojiRule {
-    /// Whether to also scan Markdown files (off by default).
-    markdown: bool,
-}
-
-impl EmojiRule {
-    pub fn new(markdown: bool) -> Self {
-        Self { markdown }
-    }
-}
+pub struct EmojiRule;
 
 impl Rule for EmojiRule {
     fn id(&self) -> &'static str {
@@ -62,7 +50,7 @@ impl Rule for EmojiRule {
     }
 
     fn applies_to_ext(&self, ext: &str) -> bool {
-        EXTS.contains(&ext) || (self.markdown && MARKDOWN_EXTS.contains(&ext))
+        EXTS.contains(&ext)
     }
 
     fn scan_line(&self, line: &str, out: &mut Vec<LineHit>) {

@@ -7,11 +7,15 @@
 //! repo's CI. Each rule honours a same-line `straitjacket-allow` escape hatch.
 
 pub mod config;
+pub mod duplication;
 pub mod engine;
 pub mod finding;
+pub mod prop_graph;
+pub mod react;
 pub mod rules;
+pub mod slop_prose;
 pub mod walk;
 
 pub use config::Config;
 pub use engine::Engine;
-pub use finding::Finding;
+pub use finding::{Finding, Severity};
