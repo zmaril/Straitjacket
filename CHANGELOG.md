@@ -6,7 +6,11 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-Nothing yet — this is the top of the 0.2.0 development cycle.
+### Changed
+
+- Upgrade the OXC crates (`oxc_parser`, `oxc_semantic`, and the rest) from 0.133
+  to 0.138. The React rules now build the semantic node arena explicitly
+  (`with_build_nodes(true)`), required as of 0.138.
 
 ## [0.1.0] - 2026-07-01
 

@@ -202,7 +202,13 @@ pub fn analyze(
     // cross-file component index (to flag only local, non-callback targets).
     let want_store = store_passthrough && text.contains("Store");
     if let (Some(index), true) = (index, prop_drilling || want_store) {
-        let semantic = SemanticBuilder::new().build(&program).semantic;
+        // `with_build_nodes(true)` is required as of oxc 0.138: the node arena
+        // (and its parent pointers) isn't populated by default, and the
+        // forwarding rules need random access to nodes for parent/ancestor lookups.
+        let semantic = SemanticBuilder::new()
+            .with_build_nodes(true)
+            .build(&program)
+            .semantic;
         let scoping = semantic.scoping();
         let nodes = semantic.nodes();
 
