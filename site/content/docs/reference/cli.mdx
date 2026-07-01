@@ -1,0 +1,90 @@
+---
+title: CLI
+description: Every command-line flag, the output format, exit codes, and installation details.
+---
+
+```
+straitjacket [PATHS]... [OPTIONS]
+```
+
+With no arguments, Straitjacket scans the current directory (`.`), honoring
+`.gitignore`. Pass one or more files or directories to scan those instead.
+
+## Examples
+
+```sh
+straitjacket                      # scan the current directory (honors .gitignore)
+straitjacket src tests            # scan specific paths
+straitjacket --format json        # machine-readable output
+straitjacket --only emoji,color
+straitjacket --skip motion,slop-prose  # ratchet rules off
+straitjacket --max-lines 800       # tighter file-size budget (0 disables the rule)
+straitjacket --prose-window 600    # widen the slop-prose density window
+straitjacket --dup-min-tokens 80   # only flag larger duplicated blocks
+straitjacket --include-json        # also scan .json (skipped by default)
+straitjacket --prop-chains         # report cross-file prop-drilling depth and exit
+straitjacket --no-ignore          # don't respect .gitignore / hidden-file rules
+straitjacket --no-fail            # report but always exit 0
+```
+
+## Options
+
+| flag | default | effect |
+|------|---------|--------|
+| `[PATHS]...` | `.` | Files or directories to scan. |
+| `--format <text\|json>` | `text` | Output format. `json` is machine-readable. |
+| `--only <ids>` | — | Run only these rules (comma-separated ids). |
+| `--skip <ids>` | — | Skip these rules (comma-separated ids). |
+| `--max-lines <n>` | `1500` | `file-size` line budget. `0` disables the rule. |
+| `--prose-window <n>` | `400` | `slop-prose` density window, in characters. |
+| `--dup-min-tokens <n>` | `50` | `duplication` minimum clone size, in tokens. |
+| `--include-json` | off | Also scan `.json` files (skipped by default as generated/config data). |
+| `--no-ignore` | off | Don't respect `.gitignore` / hidden-file conventions; scan everything. |
+| `--no-fail` | off | Exit `0` even when findings exist (report-only). |
+| `--config <path>` | — | Use this config file instead of discovering [`.straitjacket.yaml`](/docs/reference/config-file). |
+| `--no-config` | off | Ignore any `.straitjacket.yaml`; use only flags and defaults. |
+| `--prop-chains` | off | Report cross-file prop-drilling chains (depth analysis) and exit. |
+| `--list-rules` | off | List the available rules and exit. |
+| `--version` | — | Print the version and exit. |
+
+## Output format
+
+In text mode, each finding is one line:
+
+```
+path:line:col  [rule]  matched
+```
+
+Warnings are tagged `(warn)` after the rule. When the scan is clean you get
+`straitjacket: ok — no findings in N file(s)`; otherwise a summary line reports
+the error and warning counts.
+
+`.json` is skipped by default — it's almost always generated or config data, not
+code or prose meant to be read by humans. Pass `--include-json` to scan it too.
+
+## Exit codes
+
+| code | meaning |
+|------|---------|
+| `0` | Clean, or only warnings, or `--no-fail` set. |
+| `1` | At least one error-level finding. |
+
+## Installing
+
+Prebuilt binary (Linux x86_64, macOS arm64/x86_64):
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/zmaril/straitjacket/main/install.sh | sh
+```
+
+It installs to `/usr/local/bin` if writable, else `~/.local/bin`. Override the
+location with `STRAITJACKET_INSTALL_DIR`, or pin a release with
+`STRAITJACKET_VERSION`.
+
+On **Windows**, grab `straitjacket-x86_64-pc-windows-msvc.zip` from
+[Releases](https://github.com/zmaril/straitjacket/releases). On any platform, from
+source:
+
+```sh
+cargo install --git https://github.com/zmaril/straitjacket
+```

@@ -1,0 +1,87 @@
+---
+title: Prop-drilling and drill depth
+description: How Straitjacket flags a pure conduit prop with semantic analysis, why it excludes the cases it does, and how --prop-chains measures depth across files.
+---
+
+`prop-drilling` and `store-passthrough` are the two React forwarding rules. They
+target the same smell — a value handed down through the component tree instead of
+being read where it's needed — and both use OXC **semantic** analysis to stay
+precise. This page explains what "precise" means here, because getting it right
+took several passes.
+
+## The smell: a pure conduit
+
+The rule flags a **pure conduit**: a component forwards one of its own props
+unchanged into a *local* child component and **never uses it otherwise**. That's
+dead-weight drilling — the component exists, for that prop, only to pass it along.
+
+The key word is *unchanged and unused*. A prop the component also reads is fine:
+
+```tsx
+// fine — the component actually uses `value`
+function Panel({ value }) {
+  return <Child label={value.name}>{value.count}</Child>;
+}
+
+// flagged — `value` is forwarded and nothing else
+function Conduit({ value }) {
+  return <Child value={value} />;
+}
+```
+
+This is the "opinionated but not wrong" line: prop drilling that's *used* at each
+stage is legitimate; only pure pass-through is dead.
+
+## Why semantic analysis
+
+To tell those two apart you need real reference resolution. Straitjacket asks
+OXC's semantic model: for this prop binding, what are all its references? It
+classifies each reference as either a **conduit forward** (the whole value of a
+JSX attribute on a component) or a **use otherwise** (a member access, a
+computation, a DOM binding). It flags only when a conduit forward exists **and**
+there's no other use.
+
+## What's deliberately excluded
+
+Precision came from ruling out the cases that *look* like drilling but aren't:
+
+- **Modified props** — if the value is transformed on the way through, it's not a
+  pure conduit.
+- **Library components** — a Mantine `<Button>` *must* receive its props; you
+  can't ask it to read your store. Only forwards into **locally defined**
+  components count.
+- **Function-typed slots** — callbacks are detected **by type**, not by name, and
+  excluded. Passing an `onChange` down is normal.
+- **`.map` params** — a render callback's parameter isn't a drilled prop.
+
+`store-passthrough` uses the same engine for a narrower target: a value from a
+`use*Store()` hook forwarded unchanged into a child — the child should read the
+store directly.
+
+## Drill depth: `--prop-chains`
+
+The rule flags a single forwarding **hop**, but it can't tell a harmless one-level
+pass from a deep hand-me-down. That's what depth analysis is for:
+
+```sh
+straitjacket --prop-chains
+```
+
+It stitches the per-file forwarding edges into a cross-file graph (resolving child
+components by name) and prints each drill **chain** longest-first, with its depth
+— how many components a prop is handed through:
+
+```
+depth 2: ArchiveRow.task  →  TaskLinks.task  →  ReviewLink.task
+   from src/web/panes/archive/ArchiveRow.tsx:50
+```
+
+Depth ≥ 2 is where "hand-me-down through the tree" starts; most flagged forwards
+are depth 1 (a leaf) and fine. When you find a deep chain, the fix is usually to
+lift the value into a store or React context so the leaf reads it directly instead
+of every intermediate component carrying it.
+
+## Turning them off
+
+Disable with `--skip prop-drilling` or `--skip store-passthrough`. Both are
+React-only and inert elsewhere.

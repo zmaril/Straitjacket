@@ -1,0 +1,115 @@
+---
+title: Getting started
+description: Install Straitjacket, run your first scan, read the output, and handle a finding — end to end.
+---
+
+This tutorial takes you from nothing to a clean scan. By the end you'll have
+Straitjacket installed, understand what it printed, and know how to deal with a
+finding — either by fixing it or by telling Straitjacket it's fine.
+
+## 1. Install
+
+Grab the prebuilt binary (Linux x86_64, macOS arm64/x86_64):
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/zmaril/straitjacket/main/install.sh | sh
+```
+
+It installs to `/usr/local/bin` if that's writable, otherwise `~/.local/bin`.
+Prefer to build from source? `cargo install --git https://github.com/zmaril/straitjacket`.
+Full details — Windows, install location overrides, pinning a version — are in
+the [installation reference](/docs/reference/cli#installing).
+
+Check it's on your `PATH`:
+
+```sh
+straitjacket --version
+```
+
+## 2. Run your first scan
+
+From the root of any project:
+
+```sh
+straitjacket
+```
+
+With no arguments, Straitjacket scans the current directory, honoring your
+`.gitignore`. Every rule is on by default — it runs at its max and you ratchet
+down later.
+
+If everything is clean you'll see:
+
+```
+straitjacket: ok — no findings in 128 file(s)
+```
+
+## 3. Read the output
+
+More likely, it found something. Each finding is one line:
+
+```
+src/theme.ts:42:7  [color]  #1e1e1e
+```
+
+That reads as `path:line:col  [rule]  matched` — the file and position, the rule
+that fired, and the exact text that tripped it. Warnings are tagged `(warn)`;
+everything else is an error. At the end you get a summary:
+
+```
+straitjacket: 3 error(s), 1 warning(s) across 128 scanned file(s). Suppress one
+line with `straitjacket-allow[:rule]`, or a whole file with
+`straitjacket-allow-file[:rule]`.
+```
+
+The process exits **1** when there's any error-level finding — that's what makes
+[CI](/docs/guides/ci) fail — and **0** when it's clean or found only warnings.
+
+Want to see what each rule means? List them:
+
+```sh
+straitjacket --list-rules
+```
+
+Or read the full [rules reference](/docs/reference/rules).
+
+## 4. Handle a finding
+
+You have two honest choices for any finding.
+
+**Fix it.** Most findings point at something real — a hardcoded color that
+should be a theme token, a 2,000-line file that wants splitting, an emoji that
+snuck into a comment. Change the code and re-run.
+
+**Suppress it.** Sometimes the finding is a legitimate exception — a palette file
+that's *supposed* to be full of hex codes. Add a marker comment on the line:
+
+```ts
+const brandColor = "#ff6600"; // straitjacket-allow: fixed brand color, not themeable
+```
+
+Or exempt a whole file by putting a marker on any one line of it:
+
+```css
+/* straitjacket-allow-file:color  design tokens live here */
+:root { --bg: #1e1e1e; --fg: #abb2bf; }
+```
+
+The full scoping rules are in [Suppress a false positive](/docs/guides/suppressing-findings).
+
+## 5. Scope the scan
+
+As you go, you'll want to run a subset:
+
+```sh
+straitjacket src tests          # only these paths
+straitjacket --only emoji,color # only these rules
+straitjacket --skip motion      # everything except this rule
+```
+
+## Where to next
+
+- Wire Straitjacket into CI so it runs on every push → [Add Straitjacket to CI](/docs/guides/ci)
+- Save your settings in the repo → [Config file](/docs/reference/config-file)
+- See every flag and its default → [CLI reference](/docs/reference/cli)
+- Understand *why* the rules are what they are → [Explanation](/docs/explanation/slop-prose)

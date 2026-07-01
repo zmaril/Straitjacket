@@ -1,0 +1,46 @@
+---
+title: GitHub Action
+description: The bundled composite Action and its typed inputs.
+---
+
+The `zmaril/straitjacket` GitHub Action downloads the prebuilt binary and runs it
+over your repo in one self-contained pass. It fails the job on any error-level
+finding. For a walkthrough see [Add Straitjacket to CI](/docs/guides/ci); this
+page is the input reference.
+
+## Usage
+
+```yaml
+- uses: zmaril/straitjacket@v0.1.0
+  with:
+    paths: "src tests"
+    skip: "motion,slop-prose"
+```
+
+## Inputs
+
+Each input is optional and maps to a CLI flag. Blanks fall back to Straitjacket's
+own defaults.
+
+| input | default | maps to |
+|-------|---------|---------|
+| `version` | `latest` | which release to download (`latest` or a pinned tag) |
+| `working-directory` | `.` | directory to run the scan from |
+| `paths` | `.` | paths to scan (space-separated) |
+| `format` | `text` | `--format` (`text` or `json`) |
+| `only` | — | `--only` (comma-separated rule ids) |
+| `skip` | — | `--skip` (comma-separated rule ids) |
+| `max-lines` | `1500` | `--max-lines` (0 disables `file-size`) |
+| `prose-window` | `400` | `--prose-window` |
+| `dup-min-tokens` | `50` | `--dup-min-tokens` |
+| `no-ignore` | `false` | `--no-ignore` when `true` |
+| `no-fail` | `false` | `--no-fail` when `true` |
+
+## Notes
+
+- The Action is a **composite** action — it fetches a single static binary, so
+  there's no toolchain or Node to set up.
+- Pin `version` to a release tag for reproducible CI rather than tracking
+  `latest`.
+- Set `no-fail: "true"` to report findings without failing the build while you
+  adopt Straitjacket.

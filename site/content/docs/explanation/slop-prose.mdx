@@ -1,0 +1,75 @@
+---
+title: How slop-prose works
+description: The density model behind detecting AI-written prose — machine artifacts, style tells, the sliding window, and why it's a nudge rather than proof.
+---
+
+`slop-prose` is a separate analyzer for the linguistic tells of LLM-written text,
+scoped to prose (`.md`/`.markdown`/`.mdx`/`.html`) — never code. It's **on by
+default** (Straitjacket runs at its max); disable it with `--skip slop-prose`.
+
+Unlike an emoji in source, "reads like an LLM" is a *probabilistic* claim, so its
+density gate **warns** before it **fails** — the design reflects that.
+
+## Two mechanisms
+
+### Machine artifacts → hard fail
+
+Copy-paste residue that a human essentially never types:
+
+- `oaicite` / `contentReference`
+- `turn0search0`
+- `utm_source=chatgpt.com`
+- `As an AI language model`
+- unfilled placeholders (`PASTE_URL_HERE`, `[Your Name]`)
+- `2025-XX-XX` dates
+
+A single hit is an **error**, regardless of document length. These are
+language-agnostic — they work no matter what language the surrounding text is in.
+
+### Style density → warn, then fail
+
+Everything else carries a **weight**:
+
+- AI-vocabulary words like *delve* / *tapestry* / *pivotal*
+- stock phrases like *"stands as a testament"*
+- negative parallelisms like *"not just X, it's Y"*
+- spaced em dashes, curly quotes
+
+No single one means much — the signal is *co-occurrence*. Straitjacket slides a
+fixed window (the `--prose-window`, default 400 characters) across the text and
+scores the densest span. Elevated density → **warning**; high density →
+**error**.
+
+## Why divide by a fixed window
+
+Dividing by a fixed window (rather than by total length) is deliberate: it keeps
+short text lenient, so a lone "not X, but Y" in a commit-style line can't spike
+the ratio. The score and the contributing phrases are shown:
+
+```
+CHANGELOG.md:14:4  [slop-prose]  density 0.100 (score 40/400)
+   AI-prose density 0.100 over a 400-char window — reads like LLM slop:
+   "stands as a testament", "rich cultural heritage", "showcasing", "vibrant", …
+```
+
+## English only, for now
+
+The wordlist, stock phrases, and templates are all English — `slop-prose` doesn't
+know what LLM slop sounds like in any other language. If you want a specific
+language and are willing to help verify what actually reads as sloppy in it,
+[file an issue](https://github.com/zmaril/straitjacket/issues) requesting it. (The
+machine-artifact hard-fails above are language-agnostic and work regardless.)
+
+## Caveats, by design
+
+LLMs are trained on human text, so these distributions overlap — humans write
+"not X, but Y" and use em dashes too. Treat `slop-prose` as a *nudge for review*,
+not proof; the thresholds are v1 calibration guesses (`FAIL_DENSITY` /
+`WARN_DENSITY` in `src/slop_prose.rs`). Grounding, methodology, and the full tell
+taxonomy — including what *isn't* statically detectable — are in
+[`notes/detectability-tiers.md`](https://github.com/zmaril/straitjacket/blob/main/notes/detectability-tiers.md),
+derived from Wikipedia's *Signs of AI writing*.
+
+Exempt a doc that legitimately quotes these things (like those notes) with
+`straitjacket-allow-file:slop-prose`, or a single line with `straitjacket-allow`.
+See [Suppression markers](/docs/reference/suppression-markers).

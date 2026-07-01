@@ -1,0 +1,12 @@
+# Cloudflare Pages config for the straitjacket docs site (static export).
+#
+# Deploy from CI or locally with:
+#   bun run build && bunx wrangler pages deploy
+#
+# Or connect the repo in the Cloudflare Pages dashboard with:
+#   Build command:        bun run build
+#   Build output dir:     out
+#   Root directory:       site
+name = "straitjacket"
+pages_build_output_dir = "out"
+compatibility_date = "2026-07-01"

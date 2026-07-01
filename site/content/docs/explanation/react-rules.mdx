@@ -1,0 +1,49 @@
+---
+title: The React rules
+description: Why Straitjacket enforces one component per file and keeps effects out of component files — and how the AST analysis works.
+---
+
+Four rules are React-specific and only ever fire on `.tsx`/`.jsx`, so they're
+inert in non-React repos. They're AST-based, built on [OXC](https://oxc.rs/) — the
+same parser and semantic analyzer used by the Rust JavaScript tooling ecosystem.
+This page covers `one-component` and `effect-in-component`; the two forwarding
+rules get their own page, [Prop-drilling and drill depth](/docs/explanation/prop-drilling).
+
+## Why AST, not regex
+
+React structure isn't reliably detectable with pattern matching — you need to
+know what's a component, what's a hook call, which scope a binding lives in. OXC
+parses the file and builds a semantic model (scopes, symbols, references), and
+the rules ask questions of that model. That's what lets `prop-drilling`
+distinguish a forwarded-but-unused prop from one the component actually reads.
+
+## `one-component`
+
+Flags more than one React component declared in a single `.tsx`/`.jsx` file.
+
+One component per file keeps a codebase navigable: the file name tells you what's
+in it, imports stay honest, and a component can't quietly grow three siblings
+that should have been their own files. LLMs love to inline a little helper
+component right next to the one you asked for — this catches that.
+
+## `effect-in-component`
+
+Flags `useEffect` in a `.tsx`/`.jsx` file that also declares a component.
+
+The rule isn't "never use effects" — it's that effects belong in **named custom
+hooks in their own files**, not tangled into component bodies. A file that's a
+pure hook module may use `useEffect` freely; only a file that mixes an effect
+into a component trips the rule.
+
+The reasoning: effects are where the tricky, stateful, easy-to-get-wrong logic
+lives. Pulling each one into a named hook (`useThing`) gives it a name, a home,
+and a testable boundary — and stops component files from accreting side effects
+that are hard to spot in review. LLMs reach for `useEffect` reflexively, often
+where derived state or an event handler would do; forcing the effect out of the
+component file makes each one a deliberate, visible choice.
+
+## Turning them off
+
+Both are on by default. Disable individually with
+`--skip one-component` or `--skip effect-in-component`. They never fire outside
+`.tsx`/`.jsx`, so there's nothing to disable in a non-React repo.

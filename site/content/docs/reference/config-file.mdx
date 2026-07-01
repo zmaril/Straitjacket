@@ -1,0 +1,72 @@
+---
+title: Config file
+description: Check a .straitjacket.yaml into your repo to set defaults for every run.
+---
+
+Instead of passing flags every time, check a **`.straitjacket.yaml`** into your
+repo. Straitjacket picks it up automatically — from the current directory or any
+parent — so every run (local or CI) starts from the same settings.
+
+```yaml
+# .straitjacket.yaml
+paths: [src, tests]
+skip: [motion, slop-prose]
+max-lines: 800
+prose-window: 600
+dup-min-tokens: 80
+include-json: false
+no-ignore: false
+no-fail: false
+```
+
+## Keys
+
+Every key is optional and mirrors a [CLI flag](/docs/reference/cli) one-for-one,
+in **kebab-case**:
+
+| key | type | flag |
+|-----|------|------|
+| `paths` | list of strings | positional paths |
+| `format` | `text` \| `json` | `--format` |
+| `only` | list of rule ids | `--only` |
+| `skip` | list of rule ids | `--skip` |
+| `max-lines` | number (0 disables) | `--max-lines` |
+| `prose-window` | number | `--prose-window` |
+| `dup-min-tokens` | number | `--dup-min-tokens` |
+| `include-json` | boolean | `--include-json` |
+| `no-ignore` | boolean | `--no-ignore` |
+| `no-fail` | boolean | `--no-fail` |
+
+An **unknown key is an error** — a typo'd setting is surfaced, not silently
+ignored. The rule ids for `only`/`skip` are the same ones in the
+[rules reference](/docs/reference/rules).
+
+## Precedence
+
+Settings layer in this order, each overriding the one before:
+
+1. Built-in defaults
+2. `.straitjacket.yaml`
+3. CLI flags
+
+So a `--max-lines 0` on the command line wins over `max-lines: 800` in the file,
+which wins over the default of 1500. The boolean flags (`include-json`,
+`no-ignore`, `no-fail`) work as an on-switch: the file sets the baseline and a
+CLI flag can turn one on, but can't turn one off — use the file for that.
+
+## Discovery
+
+Straitjacket looks for `.straitjacket.yaml` (or `.straitjacket.yml`) in the
+current directory and walks up to the filesystem root, using the first it finds.
+When a file is loaded it prints a one-line note to stderr (stdout stays clean for
+`--format json`).
+
+- `--config <path>` — use a specific file instead of discovering one.
+- `--no-config` — ignore any `.straitjacket.yaml` and use only flags + defaults.
+
+## With the GitHub Action
+
+The [Action](/docs/reference/github-action) runs Straitjacket inside your
+checked-out repo, so a committed `.straitjacket.yaml` is picked up with no extra
+configuration. Leave the Action's inputs blank to defer to the file; set an input
+to override it for that workflow.

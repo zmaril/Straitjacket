@@ -1,0 +1,79 @@
+---
+title: Tune or disable rules
+description: Run a subset of rules, adjust thresholds, and change how findings are reported.
+---
+
+Straitjacket runs every rule at its strictest by default. You ratchet *down* from
+there. This guide covers the common adjustments; the full flag list is in the
+[CLI reference](/docs/reference/cli).
+
+## Run only some rules
+
+```sh
+straitjacket --only emoji,color     # nothing but these two
+straitjacket --skip motion,slop-prose  # everything except these
+```
+
+`--only` and `--skip` take comma-separated rule ids. Unknown ids print a warning
+and are ignored. See every id in the [rules reference](/docs/reference/rules) or
+with `straitjacket --list-rules`.
+
+## Adjust thresholds
+
+Several rules have a tunable number:
+
+```sh
+straitjacket --max-lines 800       # file-size line budget (0 disables)
+straitjacket --prose-window 600    # slop-prose density window, in characters
+straitjacket --dup-min-tokens 80   # only flag duplicated blocks this large
+```
+
+- **`--max-lines`** — how long a file may be before `file-size` fires. Default 1500.
+- **`--prose-window`** — the character window `slop-prose` slides while scoring
+  density. Wider = more forgiving. Default 400. See
+  [How slop-prose works](/docs/explanation/slop-prose).
+- **`--dup-min-tokens`** — the smallest clone `duplication` will report. Higher =
+  fewer, larger duplicates. Default 50. See
+  [Why duplication is compiled in](/docs/explanation/duplication).
+
+## Report cross-file prop-drilling depth
+
+The `prop-drilling` rule flags a single forwarding hop but can't tell a harmless
+one-level pass from a deep drill. This mode stitches the per-file forwarding
+edges into a cross-file graph and prints each drill chain longest-first, then
+exits:
+
+```sh
+straitjacket --prop-chains
+```
+
+```
+depth 2: ArchiveRow.task  →  TaskLinks.task  →  ReviewLink.task
+   from src/web/panes/archive/ArchiveRow.tsx:50
+```
+
+More in [Prop-drilling and drill depth](/docs/explanation/prop-drilling).
+
+## Change the output
+
+```sh
+straitjacket --format json   # machine-readable findings
+straitjacket --no-fail       # report everything but always exit 0
+```
+
+`--format json` is the right choice when another tool consumes the results.
+`--no-fail` is useful while adopting Straitjacket — you see findings without
+breaking the build.
+
+## Make it stick
+
+Rather than remember these flags for every run, commit a
+[`.straitjacket.yaml`](/docs/reference/config-file) to the repo — the same
+settings in one file, picked up automatically by every run and by CI:
+
+```yaml
+# .straitjacket.yaml
+skip: [motion, slop-prose]
+max-lines: 800
+dup-min-tokens: 80
+```

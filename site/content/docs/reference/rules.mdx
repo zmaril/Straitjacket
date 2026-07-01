@@ -1,0 +1,55 @@
+---
+title: Rules
+description: Every built-in rule, what it flags, the file types it runs on, and how to tune or disable it.
+---
+
+The built-in rules are intentionally **generic** — no framework or
+single-language assumptions — so the same binary works across all your repos.
+Everything is on by default; you ratchet down with `--skip`. Each rule only looks
+at the file types where it makes sense (e.g. `color` ignores `.json`,
+`inline-svg` only scans component sources).
+
+Run `straitjacket --list-rules` to see them with their one-line descriptions.
+
+## Generic rules
+
+| rule | flags |
+|------|-------|
+| `emoji` | emoji glyphs in code, comments, strings, and Markdown (a reliable LLM tell). Color emoji, VS16-presented glyphs, and flag sequences — but **not** text symbols like `©` `™` `✓`, arrows, dashes, or the geometric star. |
+| `color` | hardcoded color literals — hex (`#1e1e1e`) and CSS color functions (`rgb()`, `rgba()`, `hsl()`, `hwb()`, `lab()`, `lch()`, `oklab()`, `oklch()`, `color()`). Use a theme token / CSS variable instead. |
+| `inline-svg` | hand-rolled inline `<svg>` in component code — extract it into a named, reusable icon. |
+| `inline-font` | inline `font-family` stacks — define the font once and reference a CSS variable. |
+| `motion` | ad-hoc `transition` / `animation` / `@keyframes` — centralize motion so it can be tuned or disabled. |
+| `file-size` | files longer than the line budget (default **1500**) — sprawling single files are a common LLM tell. Tune with `--max-lines`, disable with `--max-lines 0` or `--skip file-size`. |
+| `slop-prose` | LLM prose tells in `.md`/`.markdown`/`.mdx`/`.html`: machine artifacts hard-fail, and a high *density* of style tells warns or fails. Disable with `--skip slop-prose`. See [How slop-prose works](/docs/explanation/slop-prose). |
+| `duplication` | copy/pasted code across the tree — any clone of ≥ 50 tokens fails; **a structure may appear only once**. Compiled in (no external tool). Tune with `--dup-min-tokens`, disable with `--skip duplication`. See [Why duplication is compiled in](/docs/explanation/duplication). |
+
+## React rules
+
+The following rules are **React-specific** and only ever fire on `.tsx`/`.jsx`,
+so they're inert in non-React repos. They're AST-based, using
+[OXC](https://oxc.rs/).
+
+| rule | flags |
+|------|-------|
+| `one-component` | more than one React component in a `.tsx`/`.jsx` file. Disable with `--skip one-component`. |
+| `effect-in-component` | `useEffect` in a `.tsx`/`.jsx` file that declares a component — effects belong in named custom hooks in their own files. Pure hook files may use it freely. Disable with `--skip effect-in-component`. |
+| `prop-drilling` | a **pure conduit**: a component forwards one of its own props unchanged into a *local* child component and **never uses it otherwise** — dead-weight drilling. Uses OXC **semantic** analysis: a prop the component also reads (`{value.x}`, a computation, a DOM binding) is fine; only forwarded-but-unused is flagged. Also excluded — modified props, library components (a Mantine `<Button>` must receive props), **function-typed** slots (callbacks, by type), and `.map` params. Lift the value into a store or context. Disable with `--skip prop-drilling`. See [Prop-drilling and drill depth](/docs/explanation/prop-drilling). |
+| `store-passthrough` | a value from a `use*Store()` hook forwarded unchanged into a child component — the child should read the store directly. Same semantic engine; only bare `{value}` on a component counts. Disable with `--skip store-passthrough`. |
+
+## Severity and exit code
+
+Findings are either **error** or **warning** (warnings are tagged `(warn)` in the
+output). The process exits **1** when there's any error-level finding — so CI
+fails — and **0** when the scan is clean or found only warnings. Override with
+`--no-fail` to always exit 0.
+
+## Defaults at a glance
+
+| setting | default | flag |
+|---------|---------|------|
+| file-size line budget | 1500 | `--max-lines` |
+| slop-prose density window | 400 chars | `--prose-window` |
+| duplication minimum clone | 50 tokens | `--dup-min-tokens` |
+| scan `.json` | off | `--include-json` |
+| respect `.gitignore` | on | `--no-ignore` |

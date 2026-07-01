@@ -1,0 +1,37 @@
+---
+title: Why duplication is compiled in
+description: Copy-paste is a loud LLM tell, so Straitjacket detects clones in-process with no external tool.
+---
+
+Copy-paste is one of the loudest LLM tells: models clone-and-tweak instead of
+factoring out a shared helper. So Straitjacket ships duplication detection in the
+box.
+
+## Compiled in, no external tool
+
+The `duplication` rule is **compiled into Straitjacket** — it uses
+[`cpd-finder`](https://crates.io/crates/cpd-finder), the Rust engine behind
+[jscpd](https://github.com/kucherenko/jscpd) 5, as a library. Nothing to install,
+no Node, no separate binary; Straitjacket walks and tokenizes the tree (Rust,
+TS/JS, Python, and more) in-process.
+
+## The policy: a structure may appear only once
+
+This matches Straitjacket's max-by-default stance. Any clone of ≥ **50 tokens** is
+an error:
+
+```
+src/util.rs:42:1  [duplication]  9 lines, 71 tokens
+   duplicated code — this block also appears at src/helpers.rs:88.
+   LLMs clone-and-tweak; factor out a shared helper.
+```
+
+The finding points at both locations so you can see the pair and decide where the
+shared helper belongs.
+
+## Tuning
+
+Raise the floor with `--dup-min-tokens N` to only flag larger duplicated blocks,
+or turn it off entirely with `--skip duplication`. The default of 50 tokens is
+deliberately low — it catches the small clone-and-tweak blocks that accumulate
+fastest.
