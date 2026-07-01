@@ -47,6 +47,6 @@ Prefer to talk it through first? [**Join the Discord**](https://discord.gg/5G6Kv
 
 ## License
 
-Code is MIT.
+Code is [MIT](LICENSE). Notable changes are tracked in the [changelog](CHANGELOG.md).
 
 The banner image (`assets/strait-waistcoat.jpg`) — *Insane patient in a strait-waistcoat*, [Wellcome Collection](https://wellcomecollection.org/works/ckwscya3) (L0011301) — is licensed [CC BY 4.0](https://creativecommons.org/licenses/by/4.0) and is **not** covered by the MIT license; reuse it under its own terms.
