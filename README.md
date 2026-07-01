@@ -6,6 +6,11 @@
   <em><sub>Insane patient in a strait-waistcoat. Wellcome Collection (L0011301), <a href="https://creativecommons.org/licenses/by/4.0">CC BY 4.0</a>, via <a href="https://commons.wikimedia.org/wiki/File:Insane_patient_in_a_strait-waistcoat._Wellcome_L0011301.jpg">Wikimedia Commons</a>.</sub></em>
 </p>
 
+<p align="center">
+  <a href="https://straitjacket.dev"><img src="https://img.shields.io/badge/docs-straitjacket.dev-111?logo=readthedocs&logoColor=white" alt="Documentation"></a>
+  <a href="https://discord.gg/5G6KvdJffj"><img src="https://img.shields.io/badge/Discord-join%20the%20chat-5865F2?logo=discord&logoColor=white" alt="Join the Discord"></a>
+</p>
+
 Straitjacket is a fast, deterministic scanner that flags the weird code and text LLMs like to produce. It sweeps your files against a set of rules — with snobby yet configurable defaults — and flags anything it finds. It's a single static Rust binary with no runtime dependencies, so it drops into almost any environment or repo's CI, regardless of language or stack.
 
 ## Docs
@@ -36,6 +41,8 @@ LLMs invent new tells constantly, and everyone's "Yuck!" is a little different. 
 
 - **New rules** — a deterministic smell that generalizes across repos.
 - **`slop-prose` in another language** — if you read it and can verify what actually sounds sloppy, say so in the issue (the docs' [slop-prose page](https://straitjacket.dev/docs/explanation/slop-prose) explains why it's English-only for now).
+
+Prefer to talk it through first? [**Join the Discord**](https://discord.gg/5G6KvdJffj).
 
 ## License
 

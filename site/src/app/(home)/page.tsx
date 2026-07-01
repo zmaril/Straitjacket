@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { DiscordIcon } from "@/components/icons";
 
 const RULES = [
   {
@@ -88,6 +89,13 @@ export default function HomePage() {
               className="rounded-full border px-6 py-2.5 text-sm font-medium transition-colors hover:bg-fd-accent"
             >
               GitHub
+            </a>
+            <a
+              href="https://discord.gg/5G6KvdJffj"
+              className="inline-flex items-center gap-2 rounded-full bg-[#5865F2] px-6 py-2.5 text-sm font-medium text-white transition-colors hover:bg-[#4752c4]"
+            >
+              <DiscordIcon width={18} height={18} />
+              Discord
             </a>
           </div>
 
