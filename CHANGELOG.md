@@ -6,6 +6,14 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- **`inline-font`** no longer flags a font *token reference* — `fontFamily: MONO`
+  (a variable, the good pattern) and bare generic families (`monospace`,
+  `sans-serif`) are allowed. Only a quoted font or a hardcoded multi-family stack
+  (`Inter, sans-serif`) is flagged. Also fixes a false positive on a single-line JS
+  object where the property-separator comma was read as a font fallback.
+
 ### Changed
 
 - Upgrade the OXC crates (`oxc_parser`, `oxc_semantic`, and the rest) from 0.133

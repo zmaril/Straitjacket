@@ -82,23 +82,36 @@ fn whole(caps: &Captures) -> Option<String> {
     Some(caps[0].to_string())
 }
 
-/// A `font-family` value is fine when it's a CSS variable or a global keyword —
-/// flag only inline literal font stacks (`font-family: Inter, sans-serif`).
+/// A `font-family` value is fine when it's a CSS variable, a global keyword, or a
+/// bare token/generic word — flag only an inline literal *stack* (a quoted font or a
+/// multi-family list like `Inter, sans-serif`).
 fn judge_font(caps: &Captures) -> Option<String> {
     let raw = caps.get(1)?.as_str().trim();
-    let bare = raw
-        .trim_matches(|c| c == '"' || c == '\'' || c == ',')
-        .trim();
-    let lower = bare.to_ascii_lowercase();
+    // In a JS object the comma after the value separates properties, not font
+    // fallbacks: if what follows the first comma looks like another `key: value`,
+    // keep only the value itself (`{ fontFamily: MONO, fontSize: 12 }`). Otherwise
+    // it's a CSS fallback list (or a lone trailing comma), so drop just a trailing one.
+    let value = match raw.split_once(',') {
+        Some((head, tail)) if tail.contains(':') => head.trim(),
+        _ => raw.trim_end_matches(',').trim(),
+    };
+    let lower = value.to_ascii_lowercase();
     let is_var = lower.starts_with("var(");
     let is_keyword = matches!(
         lower.as_str(),
         "inherit" | "initial" | "unset" | "revert" | ""
     );
-    if is_var || is_keyword {
+    // A bare single word: a token/variable reference (`fontFamily: MONO` — the *good*
+    // pattern) or a generic family (`monospace`, `sans-serif`). Not the smell, which is
+    // a quoted font or a hardcoded multi-family stack.
+    let is_bare_word = !value.is_empty()
+        && value
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '$' | '-'));
+    if is_var || is_keyword || is_bare_word {
         None
     } else {
-        Some(raw.to_string())
+        Some(value.to_string())
     }
 }
 
