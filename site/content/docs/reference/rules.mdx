@@ -18,7 +18,7 @@ Run `straitjacket --list-rules` to see them with their one-line descriptions.
 | `emoji` | emoji glyphs in code, comments, strings, and Markdown (a reliable LLM tell). Color emoji, VS16-presented glyphs, and flag sequences — but **not** text symbols like `©` `™` `✓`, arrows, dashes, or the geometric star. |
 | `color` | hardcoded color literals — hex (`#1e1e1e`) and CSS color functions (`rgb()`, `rgba()`, `hsl()`, `hwb()`, `lab()`, `lch()`, `oklab()`, `oklch()`, `color()`). Use a theme token / CSS variable instead. |
 | `inline-svg` | hand-rolled inline `<svg>` in component code — extract it into a named, reusable icon. |
-| `inline-font` | inline `font-family` stacks — define the font once and reference a CSS variable. |
+| `inline-font` | inline `font-family` **literal stacks** — a quoted font or a multi-family list (`Inter, sans-serif`). A token reference (`fontFamily: MONO`), a CSS variable, or a bare generic (`monospace`) is fine. Define the font once and reference a token. |
 | `motion` | ad-hoc `transition` / `animation` / `@keyframes` — centralize motion so it can be tuned or disabled. |
 | `file-size` | files longer than the line budget (default **1500**) — sprawling single files are a common LLM tell. Tune with `--max-lines`, disable with `--max-lines 0` or `--skip file-size`. |
 | `slop-prose` | LLM prose tells in `.md`/`.markdown`/`.mdx`/`.html`: machine artifacts hard-fail, and a high *density* of style tells warns or fails. Disable with `--skip slop-prose`. See [How slop-prose works](/docs/explanation/slop-prose). |

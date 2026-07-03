@@ -264,6 +264,21 @@ fn inline_font_allows_variables_and_keywords() {
     assert!(rules_hit("font-family: inherit;", "css").is_empty());
 }
 
+#[test]
+fn inline_font_allows_a_token_reference() {
+    // A font token / variable reference is the *good* pattern, not a literal stack —
+    // including in a JS object where the trailing comma separates properties.
+    assert!(rules_hit("const s = { fontFamily: MONO };", "tsx").is_empty());
+    assert!(rules_hit("const s = { fontFamily: SANS, fontSize: 12 };", "tsx").is_empty());
+}
+
+#[test]
+fn inline_font_allows_a_bare_generic_family() {
+    // A lone generic family (or a single bare word) isn't a hardcoded stack.
+    assert!(rules_hit("font-family: monospace;", "css").is_empty());
+    assert!(rules_hit("font-family: sans-serif;", "css").is_empty());
+}
+
 // ---- motion ------------------------------------------------------------------
 
 #[test]
