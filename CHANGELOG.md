@@ -6,6 +6,15 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-07-03
+
+### Fixed
+
+- **`inline-font`** no longer flags a *quoted* CSS variable — `fontFamily:
+  "var(--mantine-font-family-monospace)"` is a token reference just like the bare
+  `var(--x)` form, so both are allowed now. A quoted *font* (`"Inter"`) is still a
+  hardcoded literal and stays flagged.
+
 ## [0.2.0] - 2026-07-03
 
 ### Added
@@ -71,6 +80,7 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   (Fumadocs), organized by Diátaxis.
 - **License** — MIT.
 
-[Unreleased]: https://github.com/zmaril/straitjacket/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/zmaril/straitjacket/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/zmaril/straitjacket/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/zmaril/straitjacket/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/zmaril/straitjacket/releases/tag/v0.1.0
