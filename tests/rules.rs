@@ -545,6 +545,30 @@ fn effect_honours_line_allow() {
     assert!(tsx(src).is_empty());
 }
 
+#[test]
+fn effect_ok_in_a_hook_beside_a_component() {
+    // The refined rule: an effect inside a `use*` hook is fine even in the same file as
+    // a component. Only an effect *defined in the component body* is flagged.
+    let src = "export function useThing() {\n  useEffect(() => {}, []);\n  return 1;\n}\nexport function Widget() {\n  return <div>{useThing()}</div>;\n}\n";
+    assert!(tsx(src).is_empty());
+}
+
+#[test]
+fn effect_flags_only_the_one_in_the_component() {
+    // A component with an inline effect (flagged) beside a hook with an effect (fine):
+    // exactly one finding, for the component's effect.
+    let src = "export function useThing() {\n  useEffect(() => {}, []);\n  return 1;\n}\nexport function Widget() {\n  useEffect(() => {}, []);\n  return <div/>;\n}\n";
+    assert_eq!(tsx(src), vec!["effect-in-component"]);
+}
+
+#[test]
+fn effect_flagged_in_a_memo_component() {
+    // An anonymous component (memo/forwardRef) still counts — an inline effect flags.
+    let src =
+        "export const Widget = memo(() => {\n  useEffect(() => {}, []);\n  return <div/>;\n});\n";
+    assert_eq!(tsx(src), vec!["effect-in-component"]);
+}
+
 const CHILD_VALUE: &str =
     "export function Child({ value }: { value: number }) {\n  return <div>{value}</div>;\n}\n";
 

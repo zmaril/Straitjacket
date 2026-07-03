@@ -3,8 +3,9 @@
 //! things a line regex can't see.
 //!
 //! - `one-component`   — a `.tsx`/`.jsx` file should declare only one component.
-//! - `effect-in-component` — a file that declares a component must not also call
-//!   `useEffect`; effects belong in named custom hooks in their own files.
+//! - `effect-in-component` — a `useEffect` must not be defined in a component's body;
+//!   it belongs in a custom `use*` hook. The hook may live in the same file — a file
+//!   can hold a component and any number of hooks (with any number of effects).
 //!
 //! A "component" here is a top-level (module-level) function bound to a PascalCase
 //! name whose body contains JSX — matching what a module *exposes*, not inline
@@ -272,19 +273,28 @@ pub fn analyze(
         }
     }
 
-    // effect-in-component: if the file has a component, no useEffect anywhere.
+    // effect-in-component: flag a useEffect *defined in a component's body*. An effect
+    // inside a custom `use*` hook is fine — even in the same file as a component — so a
+    // useEffect is flagged only when it sits inside a component's span and not inside a
+    // hook's span (which handles a hook nested within a component too).
     if effect_in_component && !components.is_empty() {
         let mut effects = EffectCollector::default();
         effects.visit_program(&program);
+        let mut hooks = HookSpans::default();
+        hooks.visit_program(&program);
         for span in effects.spans {
-            findings.push(finding(
-                EFFECT_ID,
-                path,
-                text,
-                span.start,
-                "useEffect".to_string(),
-                "useEffect in a file with a component — move the effect into a named custom hook in its own file.",
-            ));
+            let in_component = components.iter().any(|c| span_contains(c.span, span));
+            let in_hook = hooks.spans.iter().any(|&h| span_contains(h, span));
+            if in_component && !in_hook {
+                findings.push(finding(
+                    EFFECT_ID,
+                    path,
+                    text,
+                    span.start,
+                    "useEffect".to_string(),
+                    "useEffect defined in a component — move the effect into a custom hook (a `use*` function; it can stay in this file).",
+                ));
+            }
         }
     }
 
@@ -443,6 +453,54 @@ fn callee_is_use_effect(callee: &Expression) -> bool {
         Expression::Identifier(id) => id.name.as_str() == "useEffect",
         Expression::StaticMemberExpression(m) => m.property.name.as_str() == "useEffect",
         _ => false,
+    }
+}
+
+/// `outer` fully contains `inner`.
+fn span_contains(outer: Span, inner: Span) -> bool {
+    outer.start <= inner.start && inner.end <= outer.end
+}
+
+/// A React hook name: `use` followed by an uppercase letter (`useEffect`,
+/// `useThing`) — not `user` / `used`. Components are PascalCase (`Use…`), so this
+/// never collides with one.
+fn is_hook_name(name: &str) -> bool {
+    let b = name.as_bytes();
+    b.len() > 3 && &b[..3] == b"use" && b[3].is_ascii_uppercase()
+}
+
+/// Collects the span of every custom-hook function (`function useX() {…}` or
+/// `const useX = () => …`, nested or not), so effects inside a hook are exempt from
+/// effect-in-component even when the hook shares a file with a component.
+#[derive(Default)]
+struct HookSpans {
+    spans: Vec<Span>,
+}
+
+impl<'a> Visit<'a> for HookSpans {
+    fn visit_function(&mut self, f: &Function<'a>, flags: ScopeFlags) {
+        if f.id
+            .as_ref()
+            .is_some_and(|id| is_hook_name(id.name.as_str()))
+        {
+            self.spans.push(f.span);
+        }
+        walk::walk_function(self, f, flags);
+    }
+    fn visit_variable_declarator(&mut self, d: &VariableDeclarator<'a>) {
+        if let BindingPattern::BindingIdentifier(id) = &d.id {
+            if is_hook_name(id.name.as_str())
+                && matches!(
+                    d.init,
+                    Some(
+                        Expression::ArrowFunctionExpression(_) | Expression::FunctionExpression(_)
+                    )
+                )
+            {
+                self.spans.push(d.span);
+            }
+        }
+        walk::walk_variable_declarator(self, d);
     }
 }
 

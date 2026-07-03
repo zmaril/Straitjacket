@@ -33,7 +33,7 @@ so they're inert in non-React repos. They're AST-based, using
 | rule | flags |
 |------|-------|
 | `one-component` | more than one React component in a `.tsx`/`.jsx` file. Disable with `--skip one-component`. |
-| `effect-in-component` | `useEffect` in a `.tsx`/`.jsx` file that declares a component — effects belong in named custom hooks in their own files. Pure hook files may use it freely. Disable with `--skip effect-in-component`. |
+| `effect-in-component` | a `useEffect` **defined in a component's body** — effects belong in a custom `use*` hook. A hook may live in the same file, so co-location is fine; only the effect-inside-a-component adjacency is flagged. Anonymous components (`memo`/`forwardRef`) count. Disable with `--skip effect-in-component`. |
 | `prop-drilling` | a **pure conduit**: a component forwards one of its own props unchanged into a *local* child component and **never uses it otherwise** — dead-weight drilling. Uses OXC **semantic** analysis: a prop the component also reads (`{value.x}`, a computation, a DOM binding) is fine; only forwarded-but-unused is flagged. Also excluded — modified props, library components (a Mantine `<Button>` must receive props), **function-typed** slots (callbacks, by type), and `.map` params. Lift the value into a store or context. Disable with `--skip prop-drilling`. See [Prop-drilling and drill depth](/docs/explanation/prop-drilling). |
 | `store-passthrough` | a value from a `use*Store()` hook forwarded unchanged into a child component — the child should read the store directly. Same semantic engine; only bare `{value}` on a component counts. Disable with `--skip store-passthrough`. |
 

@@ -28,19 +28,25 @@ component right next to the one you asked for — this catches that.
 
 ## `effect-in-component`
 
-Flags `useEffect` in a `.tsx`/`.jsx` file that also declares a component.
+Flags a `useEffect` **defined in a component's body**.
 
-The rule isn't "never use effects" — it's that effects belong in **named custom
-hooks in their own files**, not tangled into component bodies. A file that's a
-pure hook module may use `useEffect` freely; only a file that mixes an effect
-into a component trips the rule.
+The rule isn't "never use effects" — it's that effects belong in a **named custom
+hook** (`useThing`), not tangled inline into a component. The line is precise: an
+effect *inside a `use*` hook* is fine, **even in the same file as a component**. So
+you don't have to spray your codebase with one-hook-per-file — a component and its
+hooks can share a file; only the `useEffect`-directly-in-the-component adjacency is
+flagged. Anonymous components (`memo(() => …)`, `forwardRef`) count as components.
 
 The reasoning: effects are where the tricky, stateful, easy-to-get-wrong logic
-lives. Pulling each one into a named hook (`useThing`) gives it a name, a home,
-and a testable boundary — and stops component files from accreting side effects
-that are hard to spot in review. LLMs reach for `useEffect` reflexively, often
-where derived state or an event handler would do; forcing the effect out of the
-component file makes each one a deliberate, visible choice.
+lives. Pulling each one into a named hook gives it a name, a home, and a testable
+boundary — and stops component bodies from accreting side effects that are hard to
+spot in review. LLMs reach for `useEffect` reflexively, often where derived state or
+an event handler would do; forcing the effect into a named hook makes each one a
+deliberate, visible choice. Whether the hook is reusable is beside the point — the
+value is that it's *named and out of the component*.
+
+It's AST-based (OXC): straitjacket finds every `useEffect` call and checks whether
+its nearest enclosing function is a component (flag) or a hook (fine).
 
 ## Turning them off
 
