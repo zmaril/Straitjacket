@@ -16,6 +16,11 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **`effect-in-component`** is now scope-aware: it flags a `useEffect` only when it
+  is defined **inside a component's body**, not merely present in a file that has a
+  component. An effect inside a custom `use*` hook is fine — even in the same file as
+  the component — so hooks can be co-located. Anonymous components (`memo`/`forwardRef`)
+  still count.
 - Upgrade the OXC crates (`oxc_parser`, `oxc_semantic`, and the rest) from 0.133
   to 0.138. The React rules now build the semantic node arena explicitly
   (`with_build_nodes(true)`), required as of 0.138.
