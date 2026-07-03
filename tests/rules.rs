@@ -273,6 +273,23 @@ fn inline_font_allows_a_token_reference() {
 }
 
 #[test]
+fn inline_font_allows_a_quoted_css_var() {
+    // A CSS variable is a token reference whether bare or quoted — Mantine exposes its
+    // font tokens as `var(--mantine-font-family-monospace)`, often quoted in JS style.
+    assert!(rules_hit(
+        r#"style={{ fontFamily: "var(--mantine-font-family-monospace)" }}"#,
+        "tsx"
+    )
+    .is_empty());
+    assert!(rules_hit("font-family: 'var(--app-font)';", "css").is_empty());
+    // ...but a quoted *font* is still a hardcoded literal, so it stays flagged.
+    assert_eq!(
+        rules_hit(r#"style={{ fontFamily: "Inter" }}"#, "tsx"),
+        vec!["inline-font"]
+    );
+}
+
+#[test]
 fn inline_font_allows_a_bare_generic_family() {
     // A lone generic family (or a single bare word) isn't a hardcoded stack.
     assert!(rules_hit("font-family: monospace;", "css").is_empty());

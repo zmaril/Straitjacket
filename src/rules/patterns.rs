@@ -96,7 +96,16 @@ fn judge_font(caps: &Captures) -> Option<String> {
         _ => raw.trim_end_matches(',').trim(),
     };
     let lower = value.to_ascii_lowercase();
-    let is_var = lower.starts_with("var(");
+    // A CSS variable is the good pattern whether it's bare or quoted — both
+    // `fontFamily: var(--x)` and `fontFamily: "var(--x)"` just point at a token.
+    // Strip one matching pair of surrounding quotes for the var check only (so a
+    // quoted *font* like `"Inter"` still trips `is_bare_word == false` below).
+    let unquoted = lower
+        .strip_prefix('"')
+        .and_then(|s| s.strip_suffix('"'))
+        .or_else(|| lower.strip_prefix('\'').and_then(|s| s.strip_suffix('\'')))
+        .unwrap_or(lower.as_str());
+    let is_var = unquoted.starts_with("var(");
     let is_keyword = matches!(
         lower.as_str(),
         "inherit" | "initial" | "unset" | "revert" | ""
