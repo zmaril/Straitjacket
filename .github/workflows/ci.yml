@@ -28,3 +28,19 @@ jobs:
         run: cargo test --all-features
       - name: Self-scan (dogfood)
         run: cargo run --release -- .
+
+  # Mirror the Cloudflare deploy: a frozen-lockfile install fails if bun.lock and
+  # package.json drift (e.g. a Dependabot bump that didn't touch the lockfile),
+  # and the build catches anything that would break the static export.
+  site:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: site
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+      - name: install (frozen lockfile)
+        run: bun install --frozen-lockfile
+      - name: build
+        run: bun run build
