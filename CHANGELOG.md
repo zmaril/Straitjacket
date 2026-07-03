@@ -6,6 +6,8 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-07-03
+
 ### Added
 
 - **SARIF output** — `--format sarif` emits SARIF 2.1.0 for GitHub code scanning,
@@ -69,5 +71,6 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   (Fumadocs), organized by Diátaxis.
 - **License** — MIT.
 
-[Unreleased]: https://github.com/zmaril/straitjacket/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/zmaril/straitjacket/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/zmaril/straitjacket/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/zmaril/straitjacket/releases/tag/v0.1.0
