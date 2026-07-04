@@ -69,8 +69,9 @@ pub fn load_config(path: &Path) -> anyhow::Result<FileConfig> {
 pub const DEFAULT_MAX_LINES: usize = 1500;
 
 /// Default nesting budget for the `deep-nesting` rule. Beyond ~6 levels of block
-/// indentation a reader has to hold too many contexts at once; it's a warn, not a
-/// hard fail, since parsers and state machines legitimately go deeper.
+/// indentation a reader has to hold too many contexts at once. Like every code rule
+/// it fails the run; a file that legitimately nests deeper (a parser, a state
+/// machine) opts out with `--skip deep-nesting`, `--max-nesting`, or an allow marker.
 pub const DEFAULT_MAX_NESTING: usize = 6;
 
 /// Default sliding-window size (in bytes/chars) for the `slop-prose` density check.

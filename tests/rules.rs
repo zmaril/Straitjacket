@@ -199,7 +199,7 @@ fn flags_indentation_past_the_budget() {
     assert_eq!(f.len(), 1);
     assert_eq!(f[0].line, 4);
     assert_eq!(f[0].matched, "nesting depth 3");
-    assert_eq!(f[0].severity, Severity::Warning); // a warn, not a hard fail
+    assert_eq!(f[0].severity, Severity::Error); // fails the run like every code rule
 }
 
 #[test]

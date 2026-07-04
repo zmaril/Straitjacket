@@ -9,12 +9,13 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Added
 
 - **`deep-nesting` rule** — flags lines indented past a nesting budget (default
-  **6**), a **warning** rather than a hard fail. Depth is read straight off leading
+  **6**) and fails the run, like every code rule. Depth is read straight off leading
   indentation, which is canonical when a formatter is enforced, so the check is
   language-agnostic and needs no parser; it runs on programming-language sources
   only (not markup or data). Tune with `--max-nesting` / `max-nesting:`, disable
-  with `--max-nesting 0` or `--skip deep-nesting`. Grounded in Dan Luu's
-  *essential-complexity* (see `notes/danluu-review.md`). Closes #45.
+  with `--max-nesting 0` or `--skip deep-nesting`, or exempt deeper-by-design code
+  with an allow marker. Grounded in Dan Luu's *essential-complexity* (see
+  `notes/danluu-review.md`). Closes #45.
 
 ## [0.2.3] - 2026-07-04
 

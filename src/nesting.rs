@@ -113,7 +113,7 @@ pub fn scan(text: &str, path: &str, max_nesting: usize) -> Vec<Finding> {
                     message: format!(
                         "line nested {depth} levels deep, over the {max_nesting}-level limit — deeply nested code is hard to follow; extract or flatten it."
                     ),
-                    severity: Severity::Warning,
+                    severity: Severity::Error,
                 });
                 in_run = true;
             }
