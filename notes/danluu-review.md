@@ -17,6 +17,20 @@ repo regardless of stack** (per the README) and by covering things Biome doesn't
 Everything below is held to straitjacket's real bar: deterministic, generic, and a
 **low false-positive rate** so red stays trustworthy.
 
+## The second filter: "does a language-specific linter already own this?"
+
+Biome-overlap is a special case of a broader test that turned out to be the sharp
+one. A correctness lint that a mature per-language tool — or the test runner
+itself — already does **semantically** is not straitjacket's job; a cross-language
+regex there is *strictly worse* (blind to AST/semantics, FP-prone) and earns
+nothing. straitjacket should stay out of that space and lean into what **no**
+language linter owns: cross-cutting **taste** — design tokens, prose, and
+complexity **dials**. That's the tool's actual identity (the README's
+dials-for-the-undesigned framing), and `file-size` is the proof of species.
+
+This filter kills the two test-hygiene rules below and leaves `deep-nesting` as the
+only surviving code rule — because it's a taste dial, not a correctness lint.
+
 ## The Dan Luu throughline
 
 Three essays map cleanly onto these tools:
@@ -32,28 +46,8 @@ Three essays map cleanly onto these tools:
 
 ## straitjacket — ship
 
-### 1. `focused-test` — `.only` / `fdescribe` / `fit`
-`describe.only`, `it.only`, `test.only`, `fdescribe`, `fit` **silently skip the
-rest of the suite** — a green CI that's lying. Classic accidental commit.
-- **Dan Luu**: `wat` (normalized deviance / silent failure).
-- **Check**: `\b(describe|it|test|context)\.only\s*\(` · `\bf(describe|it)\s*\(`
-- **Biome overlap**: `noFocusedTests` covers **JS/TS**. Straitjacket's value is
-  everything else — pytest `@pytest.mark.only`-style focus, RSpec `fit`/`focus:`,
-  Go build-tag focus — and running one check across all of them.
-- **FP**: very low. **Severity**: error. **Effort**: trivial (pattern rule).
-
-### 2. `disabled-test` — skipped / ignored tests
-`.skip`, `xit`/`xdescribe`, `@pytest.mark.skip`/`xfail`, `@Ignore`, `t.Skip(`,
-`#[ignore]`. A disabled test is a disabled reliability check; LLMs "fix" a red test
-by skipping it.
-- **Dan Luu**: `wat`, `broken-builds`.
-- **Check**: `\.skip\s*\(|\b(xit|xdescribe)\b|pytest\.mark\.(skip|xfail)|@Ignore\b|#\[ignore\]`
-- **Biome overlap**: `noSkippedTests` covers **JS/TS**. Same cross-language pitch
-  as #1.
-- **FP**: low. **Severity**: warn (some skips are legitimate and annotated).
-
-### 3. `deep-nesting` — nesting depth over budget  ★
-The one the reviewer flagged as best. Whole-file rule, like `file-size`. Flag any
+### `deep-nesting` — nesting depth over budget  ★ (the one surviving code rule)
+Whole-file rule, like `file-size`. Flag any
 line whose nesting depth exceeds a budget (default ~6). Deeply-nested code forces a
 reader to hold too many contexts at once.
 - **Dan Luu**: `essential-complexity` (accidental complexity), `simple-architectures`.
@@ -68,7 +62,7 @@ reader to hold too many contexts at once.
   → ship as a **tunable warn**, `--max-nesting`, disable with `0`, mirroring
   `file-size`.
 
-### 4. slop-prose: "vague boasting" vocabulary
+### slop-prose: "vague boasting" vocabulary
 Add a weighted tell-class from `corp-eng-blogs`: *industry-leading, cutting-edge,
 best-in-class, game-changing, revolutionary, seamless, robust, powerful,
 state-of-the-art, blazing-fast, effortless, unlock, supercharge*. The exact
@@ -82,6 +76,14 @@ marketing fluff Dan Luu contrasts against good technical writing.
 
 ## straitjacket — dropped (with reason)
 
+- **`focused-test`** (`.only`/`fdescribe`/`FIt`) — *closed, [#43]*. Fails the
+  language-linter filter: every ecosystem owns this natively and semantically —
+  Biome `noFocusedTests` / eslint-plugin-jest (JS/TS), `ginkgo --fail-on-focused`
+  (Go, at the runner), rubocop-rspec `RSpec/Focus` (Ruby). A cross-language regex
+  is strictly worse (blind to semantics, `fit(` vs `model.fit(` ambiguity).
+- **`disabled-test`** (`.skip`/`xit`/`#[ignore]`) — *closed, [#44]*. Same filter:
+  Biome `noSkippedTests`, rubocop-rspec, etc. own it; and it was the more
+  subjective of the two.
 - **`empty-catch`** — Biome `noEmptyBlockStatements` already flags empty
   `catch {}`. Doing it in straitjacket would be redundant and regex-based error
   detection is FP-prone anyway.
@@ -167,16 +169,19 @@ pass if any run passes" anti-pattern. It launders flakiness into a false green.
 
 ## Recommendation
 
-Ship the cleanest, lowest-FP wins first:
+After the language-linter filter, the code-rule side collapses to one item, and
+housekeeping carries the rest. Ship in this order:
 
-1. **slop-prose boasting vocab** (#4) — wordlist edit, no new mechanism.
-2. **`focused-test`** (#1) — trivial, very low FP, high value.
-3. **`deep-nesting`** (#3) — the standout; whitespace-based, `--max-nesting`, warn.
-4. housekeeping **B1** (`continue-on-error`) + **B2** (`CODEOWNERS`) +
-   **B5** (`reproducible-toolchain`) — the trustworthy-builds spine.
+1. **`deep-nesting`** ([#45]) — the one surviving code rule; whitespace-based,
+   `--max-nesting`, warn. Same species as `file-size`.
+2. **slop-prose boasting vocab** ([#46]) — wordlist edit, no new mechanism.
+3. housekeeping **B1** (`continue-on-error`, [#29]) + **B2** (`CODEOWNERS`, [#30])
+   + **B5** (`reproducible-toolchain`, [#33]) — the trustworthy-builds spine.
 
-Then **`disabled-test`** (#2), **B3** (scheduled CI), **B6** (job timeout),
-**B7** (retry-masking), and **B4** (README predicate). Housekeeping supports
+Then **B3** (scheduled CI, [#31]), **B6** (job timeout, [#34]), **B7**
+(retry-masking, [#35]), and **B4** (README predicate, [#32]). Housekeeping supports
 per-check exceptions, so lean toward including a check and letting repos opt out
-rather than omitting it. Every item traces to a specific Dan Luu argument and
-clears the Biome filter.
+rather than omitting it.
+
+**Closed after review:** `focused-test` ([#43]) and `disabled-test` ([#44]) — both
+owned better by per-language linters/runners (see the filter above).
