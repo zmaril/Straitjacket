@@ -65,6 +65,11 @@ When a file is loaded it prints a one-line note to stderr (stdout stays clean fo
 - `--config <path>` — use a specific file instead of discovering one.
 - `--no-config` — ignore any `.straitjacket.yaml` and use only flags + defaults.
 
+> **Not to be confused with `.straitjacket.toml`.** The YAML file here sets *run
+> settings*. A [`.straitjacket.toml`](/docs/guides/monorepos) is a separate
+> monorepo *project marker* — its presence draws a boundary the cross-file rules
+> don't compare across. Different file, different job.
+
 ## With the GitHub Action
 
 The [Action](/docs/reference/github-action) runs Straitjacket inside your

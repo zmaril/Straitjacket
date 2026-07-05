@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -8,6 +9,7 @@ use straitjacket::config::{
     self, FileConfig, DEFAULT_DUP_MIN_TOKENS, DEFAULT_MAX_LINES, DEFAULT_MAX_NESTING,
     DEFAULT_PROSE_WINDOW,
 };
+use straitjacket::project::Projects;
 use straitjacket::react::{extract_edges, ComponentIndex, REACT_EXTS};
 use straitjacket::walk::{collect_files, display_path, ext_of};
 use straitjacket::{duplication, prop_graph, Config, Engine, Finding, Severity};
@@ -142,8 +144,19 @@ fn main() -> ExitCode {
         }
     };
 
+    // Discover monorepo project boundaries (`.straitjacket.toml` markers). Cross-file
+    // analyses partition on these so a clone or forwarding chain is never reported across
+    // a package boundary. No markers ⇒ one project ⇒ behaviour identical to before.
+    let projects = match Projects::discover(&resolved.paths, resolved.respect_ignore()) {
+        Ok(p) => p,
+        Err(e) => {
+            eprintln!("straitjacket: {e:#}");
+            return ExitCode::FAILURE;
+        }
+    };
+
     if cli.prop_chains {
-        return report_prop_chains(&resolved.paths, resolved.respect_ignore());
+        return report_prop_chains(&resolved.paths, resolved.respect_ignore(), &projects);
     }
 
     let mut engine = match Engine::new(&resolved.config()) {
@@ -170,17 +183,28 @@ fn main() -> ExitCode {
 
     let files = collect_files(&resolved.paths, resolved.respect_ignore());
 
-    // The React forwarding rules need a cross-file index of every local component and
-    // its prop types — build it from the React files before scanning.
-    if engine.needs_component_index() {
-        engine.set_component_index(ComponentIndex::build(&react_sources(&files)));
-    }
+    // The React forwarding rules need a cross-file index of every local component and its
+    // prop types. Build one index *per project* so a component named the same in two
+    // packages (e.g. `Button`) doesn't collide, and a forwarding chain can't span a
+    // package boundary. The index for the file being scanned is swapped in as the loop
+    // moves between projects (files walk in directory order, so this is a handful of
+    // swaps, not one per file).
+    let react_indexes = build_react_indexes(&engine, &files, &projects);
+    let mut current_project: Option<Option<PathBuf>> = None;
 
     let mut findings: Vec<Finding> = Vec::new();
     for path in &files {
         let Some(ext) = ext_of(path) else { continue };
         if !engine.handles_ext(&ext) {
             continue;
+        }
+        if engine.needs_component_index() {
+            let key = projects.root_for(path);
+            if current_project.as_ref() != Some(&key) {
+                let index = react_indexes.get(&key).cloned().unwrap_or_default();
+                engine.set_component_index(index);
+                current_project = Some(key);
+            }
         }
         // Skip unreadable files and binaries (non-UTF-8) silently.
         let Ok(bytes) = fs::read(path) else { continue };
@@ -190,23 +214,28 @@ fn main() -> ExitCode {
         findings.extend(engine.scan_text(&text, &display_path(path), &ext));
     }
 
-    // Cross-file copy/paste detection (compiled in via cpd-finder), run once over
-    // the scan paths rather than per file.
+    // Cross-file copy/paste detection (compiled in via cpd-finder). A clone only counts
+    // *within* a project, so when boundaries are declared this runs once per project over
+    // that project's files — never comparing across a package boundary. With no
+    // boundaries it's a single pass over the scan paths, exactly as before.
     if let Some(min_tokens) = engine.duplication() {
         let ignore: Vec<String> = if engine.skip_json() {
             vec!["**/*.json".to_string()]
         } else {
             Vec::new()
         };
-        // Duplication is a separate cross-file pass (cpd-finder), so its findings don't
-        // flow through the per-file `straitjacket-allow` filter — apply the same
-        // suppression here so `allow-file:duplication` (and line markers) work for it too.
-        let dups = duplication::detect(
+        let dups = duplication::detect_partitioned(
             &resolved.paths,
+            &files,
+            &projects,
+            engine.skip_json(),
             resolved.respect_ignore(),
             min_tokens,
             &ignore,
         );
+        // Duplication is a separate cross-file pass (cpd-finder), so its findings don't
+        // flow through the per-file `straitjacket-allow` filter — apply the same
+        // suppression here so `allow-file:duplication` (and line markers) work for it too.
         findings.extend(dups.into_iter().filter(|f| {
             fs::read_to_string(&f.path)
                 .map(|text| !straitjacket::engine::is_suppressed(&text, f.line, &f.rule))
@@ -335,9 +364,13 @@ fn warn_unknown(unknown: Vec<String>) {
     }
 }
 
-/// Read every React file as `(display_path, source)`.
-fn react_sources(files: &[PathBuf]) -> Vec<(String, String)> {
-    let mut out = Vec::new();
+/// Group every React file's `(display_path, source)` by the project it belongs to
+/// (`None` = the root project). The cross-file React analyses run per bucket.
+fn react_sources_by_project(
+    files: &[PathBuf],
+    projects: &Projects,
+) -> HashMap<Option<PathBuf>, Vec<(String, String)>> {
+    let mut buckets: HashMap<Option<PathBuf>, Vec<(String, String)>> = HashMap::new();
     for path in files {
         if !ext_of(path).is_some_and(|e| REACT_EXTS.contains(&e.as_str())) {
             continue;
@@ -346,39 +379,74 @@ fn react_sources(files: &[PathBuf]) -> Vec<(String, String)> {
         let Ok(text) = String::from_utf8(bytes) else {
             continue;
         };
-        out.push((display_path(path), text));
+        buckets
+            .entry(projects.root_for(path))
+            .or_default()
+            .push((display_path(path), text));
     }
-    out
+    buckets
+}
+
+/// Build one `ComponentIndex` per project from the React files, keyed by project root.
+/// Empty when the forwarding rules are off (no index needed).
+fn build_react_indexes(
+    engine: &Engine,
+    files: &[PathBuf],
+    projects: &Projects,
+) -> HashMap<Option<PathBuf>, ComponentIndex> {
+    if !engine.needs_component_index() {
+        return HashMap::new();
+    }
+    react_sources_by_project(files, projects)
+        .into_iter()
+        .map(|(key, sources)| (key, ComponentIndex::build(&sources)))
+        .collect()
 }
 
 /// Collect prop-forwarding edges across all React files, stitch them into chains, and
 /// print each chain longest-first with its depth (number of forwarding hops).
-fn report_prop_chains(paths: &[PathBuf], respect_ignore: bool) -> ExitCode {
-    let sources = react_sources(&collect_files(paths, respect_ignore));
-    let index = ComponentIndex::build(&sources);
-    let mut edges = Vec::new();
-    for (path, text) in &sources {
-        edges.extend(extract_edges(text, path));
-    }
-    // Keep only forwards into a local, non-callback slot — same filter as the rule.
-    edges.retain(|e| index.is_drill_target(&e.to_component, &e.to_param));
+/// A sortable key for a project bucket, so per-project output is deterministic (the root
+/// project sorts first as the empty string).
+fn bucket_order(key: &Option<PathBuf>) -> String {
+    key.as_ref()
+        .map(|p| p.to_string_lossy().into_owned())
+        .unwrap_or_default()
+}
 
-    let chains = prop_graph::chains(&edges);
+fn report_prop_chains(paths: &[PathBuf], respect_ignore: bool, projects: &Projects) -> ExitCode {
+    let files = collect_files(paths, respect_ignore);
+    // Chains are stitched *within* each project — an index and edge set per project — so a
+    // chain never crosses a package boundary (mirrors how the rules run).
+    let mut buckets: Vec<_> = react_sources_by_project(&files, projects)
+        .into_iter()
+        .collect();
+    buckets.sort_by(|a, b| bucket_order(&a.0).cmp(&bucket_order(&b.0)));
+
     let mut shown = 0;
-    for chain in &chains {
-        if chain.len() < 2 {
-            continue; // depth 1 = a single hop; show real drills (2+)
+    for (_key, sources) in &buckets {
+        let index = ComponentIndex::build(sources);
+        let mut edges = Vec::new();
+        for (path, text) in sources {
+            edges.extend(extract_edges(text, path));
         }
-        shown += 1;
-        // Node sequence: first edge's source, then each edge's target.
-        let first = &edges[chain[0]];
-        let mut nodes = vec![format!("{}.{}", first.from_component, first.from_param)];
-        for &ei in chain {
-            let e = &edges[ei];
-            nodes.push(format!("{}.{}", e.to_component, e.to_param));
+        // Keep only forwards into a local, non-callback slot — same filter as the rule.
+        edges.retain(|e| index.is_drill_target(&e.to_component, &e.to_param));
+
+        for chain in &prop_graph::chains(&edges) {
+            if chain.len() < 2 {
+                continue; // depth 1 = a single hop; show real drills (2+)
+            }
+            shown += 1;
+            // Node sequence: first edge's source, then each edge's target.
+            let first = &edges[chain[0]];
+            let mut nodes = vec![format!("{}.{}", first.from_component, first.from_param)];
+            for &ei in chain {
+                let e = &edges[ei];
+                nodes.push(format!("{}.{}", e.to_component, e.to_param));
+            }
+            println!("depth {}: {}", chain.len(), nodes.join("  →  "));
+            println!("   from {}:{}", first.file, first.line);
         }
-        println!("depth {}: {}", chain.len(), nodes.join("  →  "));
-        println!("   from {}:{}", first.file, first.line);
     }
     if shown == 0 {
         println!("straitjacket: no prop-drilling chains of depth ≥ 2 found");

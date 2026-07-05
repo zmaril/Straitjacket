@@ -8,17 +8,72 @@
 //! cross-file, whole-run analysis, so it runs once over the scan paths rather than
 //! per file.
 
+use std::collections::HashMap;
 use std::path::PathBuf;
 
 use cpd_finder::orchestrate::{run, RunConfig};
 
 use crate::finding::{Finding, Severity};
+use crate::project::Projects;
+use crate::walk::ext_of;
 
 const RULE: &str = "duplication";
 
-/// Detect duplicated code across `paths` and return one finding per clone. `ignore`
-/// holds extra glob patterns to exclude (e.g. `**/*.json`). Detection failures
-/// degrade to an empty result rather than aborting the whole scan.
+/// Run copy/paste detection, partitioning by project when boundaries are declared.
+///
+/// With no boundaries it's a single pass over `scan_paths` (original behaviour). With
+/// boundaries it runs one cpd pass per project over that project's explicit file list, so
+/// a clone is only ever reported *within* a project — two independent packages that share
+/// boilerplate aren't flagged. Per-project file lists (not one global pass then filtered)
+/// are used on purpose: cpd reports only a subset of clone pairs, so post-filtering could
+/// drop a genuine in-project clone reported only via a cross-project pairing.
+///
+/// `files` is the already-collected scan set; `skip_json` drops `.json` from the
+/// per-project passes (duplication never reads it when JSON is skipped).
+pub fn detect_partitioned(
+    scan_paths: &[PathBuf],
+    files: &[PathBuf],
+    projects: &Projects,
+    skip_json: bool,
+    respect_ignore: bool,
+    min_tokens: usize,
+    ignore: &[String],
+) -> Vec<Finding> {
+    if !projects.is_partitioned() {
+        return detect(scan_paths, respect_ignore, min_tokens, ignore);
+    }
+    let mut buckets: HashMap<Option<PathBuf>, Vec<PathBuf>> = HashMap::new();
+    for path in files {
+        if skip_json && ext_of(path).as_deref() == Some("json") {
+            continue;
+        }
+        buckets
+            .entry(projects.root_for(path))
+            .or_default()
+            .push(path.clone());
+    }
+    // Deterministic order (root project first as the empty key) so output is stable.
+    let mut ordered: Vec<_> = buckets.into_iter().collect();
+    ordered.sort_by(|a, b| bucket_key(&a.0).cmp(&bucket_key(&b.0)));
+    let mut out = Vec::new();
+    for (_key, bucket) in &ordered {
+        out.extend(detect(bucket, respect_ignore, min_tokens, ignore));
+    }
+    out
+}
+
+/// A sortable key for a project bucket; the root project (`None`) sorts first.
+fn bucket_key(key: &Option<PathBuf>) -> String {
+    key.as_ref()
+        .map(|p| p.to_string_lossy().into_owned())
+        .unwrap_or_default()
+}
+
+/// Detect duplicated code across `paths` and return one finding per clone. `paths` may
+/// be directories or individual files; passing one project's files at a time is how the
+/// caller keeps clones from being reported across a monorepo boundary. `ignore` holds
+/// extra glob patterns to exclude (e.g. `**/*.json`). Detection failures degrade to an
+/// empty result rather than aborting the whole scan.
 pub fn detect(
     paths: &[PathBuf],
     respect_ignore: bool,

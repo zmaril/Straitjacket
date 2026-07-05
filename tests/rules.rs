@@ -576,6 +576,87 @@ fn duplication_ignores_unique_code() {
     assert!(detect_dups("nodup", &[("u.rs", src)], 20).is_empty());
 }
 
+/// Build a two-package temp tree (an identical helper in each package), run the
+/// partitioning duplication pass over it the way the CLI does, clean up, and return the
+/// findings. When `boundaries` is set a `.straitjacket.toml` marker is dropped in each
+/// package, making them separate projects. When `extra_web_clone` is set a second copy of
+/// the helper is added *inside* the `web` package (an intra-project clone that must always
+/// fire).
+fn detect_dups_two_packages(
+    tag: &str,
+    boundaries: bool,
+    extra_web_clone: bool,
+) -> Vec<straitjacket::Finding> {
+    use std::fs;
+    let dir = std::env::temp_dir().join(format!("sj-{tag}-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&dir);
+    let shared = func("shared");
+    for pkg in ["web", "admin"] {
+        let pkg_dir = dir.join("packages").join(pkg);
+        fs::create_dir_all(&pkg_dir).unwrap();
+        fs::write(pkg_dir.join("util.rs"), &shared).unwrap();
+        if boundaries {
+            fs::write(pkg_dir.join(".straitjacket.toml"), "name = \"pkg\"\n").unwrap();
+        }
+    }
+    if extra_web_clone {
+        fs::write(dir.join("packages/web/util2.rs"), &shared).unwrap();
+    }
+    let roots = [dir.clone()];
+    let projects = straitjacket::project::Projects::discover(&roots, true).unwrap();
+    let files = straitjacket::walk::collect_files(&roots, true);
+    let findings = straitjacket::duplication::detect_partitioned(
+        &roots,
+        &files,
+        &projects,
+        true,
+        true,
+        20,
+        &[],
+    );
+    let _ = fs::remove_dir_all(&dir);
+    findings
+}
+
+#[test]
+fn duplication_flags_cross_package_clone_without_boundaries() {
+    // No project markers: the whole tree is one project, so the shared helper is a clone.
+    let findings = detect_dups_two_packages("dup-noboundary", false, false);
+    assert!(
+        findings.iter().any(|f| f.rule == "duplication"),
+        "expected a cross-package clone to fire without boundaries, got {findings:?}"
+    );
+}
+
+#[test]
+fn duplication_respects_project_boundaries() {
+    // A `.straitjacket.toml` in each package makes them independent projects, so the
+    // helper they share across the boundary is no longer flagged.
+    let findings = detect_dups_two_packages("dup-boundary", true, false);
+    assert!(
+        findings.is_empty(),
+        "expected no cross-package clone once boundaries are declared, got {findings:?}"
+    );
+}
+
+#[test]
+fn duplication_still_flags_within_a_project_across_boundaries() {
+    // Boundaries suppress *cross*-package clones but must not hide a clone that lives
+    // wholly inside one package (the regression a global-filter approach would introduce).
+    let findings = detect_dups_two_packages("dup-intra", true, true);
+    assert!(
+        findings
+            .iter()
+            .any(|f| f.rule == "duplication" && f.path.contains("packages/web/")),
+        "expected the intra-web clone to still fire, got {findings:?}"
+    );
+    // ...and still nothing that points across the boundary into admin.
+    assert!(
+        !findings.iter().any(|f| f.message.contains("admin")),
+        "no finding should reference the other package, got {findings:?}"
+    );
+}
+
 // ---- json skipping -----------------------------------------------------------
 
 #[test]

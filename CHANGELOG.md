@@ -8,6 +8,15 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Monorepo project boundaries** — drop a `.straitjacket.toml` file in a
+  directory to mark it a *project*. The cross-file rules (`duplication`,
+  `prop-drilling`, `store-passthrough`) partition on these boundaries and never
+  compare files across a package, so two independent packages aren't flagged for
+  the boilerplate they legitimately share, and same-named components in different
+  packages no longer collide. A file belongs to its nearest ancestor marker;
+  files above every marker form the root project. A repo with no markers is a
+  single project, so behaviour is unchanged for non-monorepos. See the
+  [monorepos guide](https://straitjacket.dev/docs/guides/monorepos).
 - **`deep-nesting` rule** — flags lines indented past a nesting budget (default
   **6**) and fails the run, like every code rule. Depth is read straight off leading
   indentation, which is canonical when a formatter is enforced, so the check is
