@@ -54,7 +54,7 @@ pub fn detect_partitioned(
     }
     // Deterministic order (root project first as the empty key) so output is stable.
     let mut ordered: Vec<_> = buckets.into_iter().collect();
-    ordered.sort_by(|a, b| bucket_key(&a.0).cmp(&bucket_key(&b.0)));
+    ordered.sort_by_key(|a| bucket_key(&a.0));
     let mut out = Vec::new();
     for (_key, bucket) in &ordered {
         out.extend(detect(bucket, respect_ignore, min_tokens, ignore));

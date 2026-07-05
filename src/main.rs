@@ -420,7 +420,7 @@ fn report_prop_chains(paths: &[PathBuf], respect_ignore: bool, projects: &Projec
     let mut buckets: Vec<_> = react_sources_by_project(&files, projects)
         .into_iter()
         .collect();
-    buckets.sort_by(|a, b| bucket_order(&a.0).cmp(&bucket_order(&b.0)));
+    buckets.sort_by_key(|b| bucket_order(&b.0));
 
     let mut shown = 0;
     for (_key, sources) in &buckets {
