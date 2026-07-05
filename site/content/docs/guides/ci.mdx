@@ -25,7 +25,9 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@v4
-      - uses: zmaril/straitjacket@v0.2.0
+      - uses: zmaril/straitjacket@v0.2.3
+        with:
+          version: "v0.2.3"   # pin the scanner, not just the Action wrapper
 ```
 
 That's the whole thing. No toolchain to set up, no Node — the Action fetches a
@@ -33,12 +35,20 @@ single static binary and runs it. The `security-events: write` permission lets i
 post findings as PR annotations; leave it off and the scan still runs and gates,
 you just don't get the annotations.
 
+> **Pin the full version — both halves.** The `@v0.2.3` on the `uses:` line pins
+> the Action *wrapper*; the `version:` input pins the *scanner binary* it
+> downloads. Leave `version` unset and it defaults to `latest`, so a new
+> Straitjacket release applies its new rules to your repo the moment it ships —
+> failing an unrelated PR on a rule you never opted into. Pin both to the same
+> tag and bump deliberately. The newest release is on the
+> [Releases page](https://github.com/zmaril/straitjacket/releases).
+
 ## Configure it
 
 Pass typed fields rather than a raw argument string. Each maps to a CLI flag:
 
 ```yaml
-      - uses: zmaril/straitjacket@v0.2.0
+      - uses: zmaril/straitjacket@v0.2.3
         with:
           paths: "src tests"     # default "."
           skip: "motion,slop-prose"
@@ -51,7 +61,7 @@ Pass typed fields rather than a raw argument string. Each maps to a CLI flag:
           no-ignore: "false"
           no-fail: "false"
           working-directory: "."
-          version: "latest"      # or a pinned tag
+          version: "v0.2.3"      # pin the scanner; "latest" applies new rules the moment they ship
 ```
 
 Every field is optional; blanks fall back to Straitjacket's own defaults. The
@@ -63,7 +73,7 @@ To surface findings without failing the build (useful while you're adopting it),
 set `no-fail`:
 
 ```yaml
-      - uses: zmaril/straitjacket@v0.2.0
+      - uses: zmaril/straitjacket@v0.2.3
         with:
           no-fail: "true"
 ```

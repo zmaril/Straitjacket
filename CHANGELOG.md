@@ -6,6 +6,15 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- **Docs recommend pinning the full version.** The GitHub Action guide and
+  reference now pin both the Action wrapper (`@v0.2.3`) *and* the `version:`
+  input (the scanner binary) — left unset, `version` defaults to `latest`, so a
+  new rule would apply to a consumer's repo the moment it ships and fail an
+  unrelated PR. Our own `housekeeping` self-audit step is likewise pinned to a
+  full version instead of the moving `@v1` tag.
+
 ### Added
 
 - **`deep-nesting` rule** — flags lines indented past a nesting budget (default
