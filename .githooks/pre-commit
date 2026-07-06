@@ -1,0 +1,13 @@
+#!/bin/sh
+# Full local gate — the same checks CI enforces, run before the commit lands so
+# agents catch failures here instead of ping-ponging with remote CI.
+# Bypass with `git commit --no-verify`. Activate with:
+#   git config core.hooksPath .githooks
+set -e
+run() { printf '\n\033[1m▶ %s\033[0m\n' "$*"; "$@"; }
+
+run cargo fmt --all --check
+run cargo clippy --all-targets --all-features -- -D warnings
+run cargo test --all-features
+# Dogfood: scan the tree with the straitjacket built from the code under commit.
+run cargo run --release -- .
