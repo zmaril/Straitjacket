@@ -17,11 +17,17 @@ permissions:
   contents: read
 steps:
   - uses: actions/checkout@v4
-  - uses: zmaril/straitjacket@v0.2.0
+  - uses: zmaril/straitjacket@v0.2.3
     with:
+      version: "v0.2.3"        # pin the scanner too — see the note below
       paths: "src tests"
       skip: "motion,slop-prose"
 ```
+
+Pin the **full version** on both the `uses:` line (`@v0.2.3`, the Action wrapper)
+and the `version:` input (`v0.2.3`, the scanner binary). Left unset, `version`
+defaults to `latest`, so a new release applies its new rules the moment it ships —
+failing an unrelated PR on a rule you never opted into. Bump both, deliberately.
 
 ## Inputs
 
@@ -30,7 +36,7 @@ own defaults.
 
 | input | default | maps to |
 |-------|---------|---------|
-| `version` | `latest` | which release to download (`latest` or a pinned tag) |
+| `version` | `latest` | which release to download — **pin a tag** (e.g. `v0.2.3`); `latest` floats and applies new rules the moment they ship |
 | `working-directory` | `.` | directory to run the scan from |
 | `paths` | `.` | paths to scan (space-separated) |
 | `format` | `text` | `--format` for the job-log output (`text`, `json`, or `sarif`) |
