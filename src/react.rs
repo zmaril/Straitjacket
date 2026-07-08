@@ -44,7 +44,7 @@ pub const STORE_PASSTHROUGH_ID: &str = "store-passthrough";
 /// its props are function-typed. Lets the forwarding rules flag only forwards into a
 /// component **you** wrote (not a library like Mantine's `<SegmentedControl>`, which
 /// must receive props), and skip **callback** props by *type* rather than by name.
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct ComponentIndex {
     /// component name → set of its function-typed prop names.
     comps: HashMap<String, HashSet<String>>,

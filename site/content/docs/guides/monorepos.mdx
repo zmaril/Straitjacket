@@ -1,0 +1,59 @@
+---
+title: Scope checks per package in a monorepo
+description: Declare project boundaries so cross-file rules never compare files across independent packages.
+---
+
+Most of Straitjacket's rules look at one file at a time, so a monorepo is no
+different to them than a single package. Three rules are **cross-file** — they
+compare a file against the rest of the tree — and those need a boundary in a
+monorepo:
+
+- **`duplication`** — otherwise it flags a clone between two independent packages
+  as an error, even though the whole point of the boundary is that they don't
+  share a helper.
+- **`prop-drilling`** and **`store-passthrough`** — otherwise a component named
+  the same in two packages (`Button`, `Card`) is conflated, and a forwarding
+  chain can appear to cross a package it never imports.
+
+## Declare a project
+
+Drop a **`.straitjacket.toml`** file in a package's root directory. Its presence
+marks that directory as a *project*: the cross-file rules partition on it and
+never compare files across the boundary.
+
+```sh
+packages/web/.straitjacket.toml
+packages/admin/.straitjacket.toml
+```
+
+The file can be empty. A name is optional:
+
+```toml
+# packages/web/.straitjacket.toml
+name = "web"
+```
+
+That's it. Run Straitjacket from the repo root as usual — a `duplication` clone
+or a forwarding chain is now only ever reported *within* one package.
+
+```sh
+straitjacket
+```
+
+## How files map to projects
+
+A file belongs to the **nearest ancestor** directory that holds a
+`.straitjacket.toml`. Files above every marker belong to the *root project* (the
+rest of the repo), and they still compare against each other. Nested markers
+work: an inner package carves its own subtree out of the outer one.
+
+A repo with **no** markers is a single project — the whole scan — so nothing
+changes until you add the first boundary.
+
+## What still fires
+
+Boundaries only stop comparisons *across* packages. A clone that lives wholly
+inside one package still fails, and every per-file rule (`file-size`,
+`slop-prose`, `deep-nesting`, `one-component`, `color`, `emoji`, …) is unchanged.
+The [suppression markers](/docs/reference/suppression-markers) still work for the
+one-off exceptions a boundary shouldn't cover.
