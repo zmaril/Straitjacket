@@ -20,7 +20,7 @@ clap = { version = "4", features = ["derive"] }
 cpd-finder = "0.1.8"
 ignore = "0.4"
 oxc_allocator = "0.138"
-oxc_ast = "0.138"
+oxc_ast = "0.139"
 oxc_ast_visit = "0.138"
 oxc_parser = "0.138"
 oxc_semantic = "0.138"
