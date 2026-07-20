@@ -193,6 +193,7 @@ fn main() -> ExitCode {
     let mut current_project: Option<Option<PathBuf>> = None;
 
     let mut findings: Vec<Finding> = Vec::new();
+    let mut dup_suppressed = duplication::SuppressedTally::default();
     for path in &files {
         let Some(ext) = ext_of(path) else { continue };
         if !engine.handles_ext(&ext) {
@@ -236,14 +237,14 @@ fn main() -> ExitCode {
         // Duplication is a separate cross-file pass (cpd-finder), so its findings don't
         // flow through the per-file `straitjacket-allow` filter — apply the same
         // suppression here so `allow-file:duplication` (and line markers) work for it too.
-        findings.extend(dups.into_iter().filter(|f| {
-            fs::read_to_string(&f.path)
-                .map(|text| !straitjacket::engine::is_suppressed(&text, f.line, &f.rule))
-                .unwrap_or(true)
-        }));
+        // The dropped clones used to vanish uncounted; now they're tallied so a marker
+        // masking a pile of clones is visible instead of silently reading as zero.
+        let (kept, suppressed) = duplication::partition_suppressed(dups);
+        findings.extend(kept);
+        dup_suppressed = suppressed;
     }
 
-    report(&resolved.format, &findings, files.len());
+    report(&resolved.format, &findings, files.len(), &dup_suppressed);
 
     // A side-channel SARIF file, so a run can print readable text *and* hand SARIF to
     // code scanning in one pass.
@@ -456,7 +457,12 @@ fn report_prop_chains(paths: &[PathBuf], respect_ignore: bool, projects: &Projec
     ExitCode::SUCCESS
 }
 
-fn report(format: &Format, findings: &[Finding], file_count: usize) {
+fn report(
+    format: &Format,
+    findings: &[Finding],
+    file_count: usize,
+    dup_suppressed: &duplication::SuppressedTally,
+) {
     match format {
         Format::Sarif => {
             println!(
@@ -491,6 +497,16 @@ fn report(format: &Format, findings: &[Finding], file_count: usize) {
                     "\nstraitjacket: {errors} error(s), {warnings} warning(s) across {file_count} scanned file(s). \
                      Suppress one line with `straitjacket-allow[:rule]`, or a whole \
                      file with `straitjacket-allow-file[:rule]`."
+                );
+            }
+            // An always-on informational tally: clones a marker dropped don't count as
+            // findings (they never touch the exit code), but printing how many were
+            // masked stops a wall of `allow-file:duplication` markers from reading as a
+            // clean zero. Silent when nothing was suppressed.
+            if !dup_suppressed.is_empty() {
+                eprintln!(
+                    "note: duplication: {} clone(s) suppressed by allow-file markers ({} files)",
+                    dup_suppressed.clones, dup_suppressed.files
                 );
             }
         }
