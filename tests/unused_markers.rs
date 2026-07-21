@@ -248,3 +248,74 @@ fn cli_does_not_flag_a_marker_on_the_first_file() {
         "a marker on the first file is used, not unused, got:\n{stdout}"
     );
 }
+
+#[test]
+fn cli_both_sides_marked_credits_only_the_first_file() {
+    // A clone pair where BOTH files carry `straitjacket-allow-file:duplication`. Suppression is
+    // asymmetric: the detector reads the marker only on `fragment_a` (the alphabetically-first
+    // file), so that marker is load-bearing (it suppresses the clone) while the one on
+    // `fragment_b` is inert by construction. The check must credit `a_first.rs` (no unused
+    // marker) and flag `b_second.rs` with the wrong-side message.
+    //
+    // Crucially this runs with a RELATIVE scan path (`cwd = dir`, arg `.`): the cross-file
+    // duplication pass reports canonical absolute paths, while the per-file scan keys markers by
+    // relative display path, and the two namespaces must still be reconciled. An absolute scan
+    // path (as the other CLI cases here use) accidentally makes the two forms coincide and hides
+    // the join bug this guards against.
+    let block = big_block("shared");
+    let dir = scratch(
+        "bothsides",
+        &[
+            (
+                "a_first.rs",
+                format!("// straitjacket-allow-file:duplication\n{block}"),
+            ),
+            (
+                "b_second.rs",
+                format!("// straitjacket-allow-file:duplication\n{block}"),
+            ),
+        ],
+    );
+    let out = bin()
+        .current_dir(&dir)
+        .arg(".")
+        .arg("--no-config")
+        .arg("--format")
+        .arg("json")
+        .output()
+        .expect("run straitjacket");
+    let _ = fs::remove_dir_all(&dir);
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let findings: serde_json::Value =
+        serde_json::from_str(&stdout).unwrap_or_else(|e| panic!("parse json {e}:\n{stdout}"));
+    let findings = findings.as_array().expect("findings array");
+
+    let unused_on = |file: &str| -> Vec<&serde_json::Value> {
+        findings
+            .iter()
+            .filter(|f| {
+                f["rule"] == "unused-marker"
+                    && f["path"].as_str().is_some_and(|p| p.ends_with(file))
+            })
+            .collect()
+    };
+
+    // `fragment_a`'s marker is load-bearing — it must NOT be flagged.
+    assert!(
+        unused_on("a_first.rs").is_empty(),
+        "the first file's marker suppresses the clone and must be used, got:\n{stdout}"
+    );
+    // `fragment_b`'s marker is inert — flagged, and with the wrong-side message naming the
+    // first file (not the generic "suppressed no findings" one).
+    let b = unused_on("b_second.rs");
+    assert_eq!(
+        b.len(),
+        1,
+        "the second file's marker is inert and must be flagged once, got:\n{stdout}"
+    );
+    let msg = b[0]["message"].as_str().unwrap_or_default();
+    assert!(
+        msg.contains("second file") && msg.contains("a_first.rs"),
+        "expected the wrong-side message naming a_first.rs, got: {msg}"
+    );
+}

@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use clap::{Parser, ValueEnum};
@@ -18,12 +18,31 @@ use straitjacket::{duplication, prop_graph, Config, Engine, Finding, Severity};
 /// A scanned file that carries at least one `straitjacket-allow[-file]` marker: what the
 /// unused-marker check needs to decide, after every pass, which of its markers did nothing.
 struct MarkerFile {
+    /// Display path (relative when scanning relative paths) — what the finding reports.
     path: String,
+    /// Canonical join key ([`canon_key`]) — how this file is matched against the cross-file
+    /// duplication pass, whose findings carry cpd-finder's canonicalized absolute paths. The
+    /// two namespaces (relative display vs canonical absolute) only meet through this key.
+    key: String,
     ext: String,
     markers: Vec<Marker>,
     /// Would-be violations suppressed in this file — per-file rules first, then any
     /// `duplication` clones dropped in the cross-file pass are appended.
     suppressed: Vec<Suppressed>,
+}
+
+/// The canonical join key for a scanned file, matching how `cpd-finder` derives a clone's
+/// `source_id`: `fs::canonicalize(path)`, falling back to the raw path when canonicalization
+/// fails (identical fallback to cpd-finder's). The cross-file duplication pass reports paths
+/// in this canonical-absolute namespace, while the per-file scan keys markers by *display*
+/// path; reconciling suppressed clones and wrong-side markers against the right file requires
+/// joining on this key, not on the display string. Without it a load-bearing `fragment_a`
+/// marker (the one that actually suppresses the clone) is wrongly flagged as unused.
+fn canon_key(path: &Path) -> String {
+    fs::canonicalize(path)
+        .unwrap_or_else(|_| path.to_path_buf())
+        .to_string_lossy()
+        .into_owned()
 }
 
 /// Flags weird code and text that LLMs tend to generate, ahead of time.
@@ -215,6 +234,12 @@ fn main() -> ExitCode {
     // Files carrying a marker, kept aside so the unused-marker check can run once every
     // pass (including the cross-file duplication one) has had a chance to use each marker.
     let mut marker_files: Vec<MarkerFile> = Vec::new();
+    // Canonical join key → display path, over every scanned file, so a wrong-side duplication
+    // marker can name `fragment_a` (which the duplication pass reports canonically) with a
+    // readable display path — even when that first file carries no marker of its own. Built
+    // only when the duplication pass will run.
+    let dup_on = engine.duplication().is_some();
+    let mut canon_display: HashMap<String, String> = HashMap::new();
     for path in &files {
         let Some(ext) = ext_of(path) else { continue };
         if !engine.handles_ext(&ext) {
@@ -234,6 +259,11 @@ fn main() -> ExitCode {
             continue;
         };
         let dp = display_path(path);
+        // Canonical key joining this file to the cross-file duplication pass (see [`canon_key`]).
+        let key = if dup_on { canon_key(path) } else { dp.clone() };
+        if dup_on {
+            canon_display.insert(key.clone(), dp.clone());
+        }
         let visible = engine.scan_text(&text, &dp, &ext);
         // Only files that actually carry a marker can produce an unused-marker finding.
         // Compute the suppressed would-be violations by diffing against the candidate scan.
@@ -250,6 +280,7 @@ fn main() -> ExitCode {
                 let suppressed = suppressed_between(&candidates, &visible);
                 marker_files.push(MarkerFile {
                     path: dp.clone(),
+                    key: key.clone(),
                     ext: ext.clone(),
                     markers,
                     suppressed,
@@ -291,8 +322,11 @@ fn main() -> ExitCode {
         // A clone dropped by a marker on its home file is a would-be violation that marker
         // suppressed — feed it into the unused-marker reconciliation so the marker reads as
         // used. (Per-file rules were reconciled above; duplication is cross-file.)
+        // `report.suppressed` carries `fragment_a`'s *canonical* path, so match on the marker
+        // file's canonical key — not its display path, which lives in a different namespace and
+        // would never match, leaving the load-bearing marker uncredited and wrongly flagged.
         for (a_path, a_line) in &report.suppressed {
-            if let Some(mf) = marker_files.iter_mut().find(|m| &m.path == a_path) {
+            if let Some(mf) = marker_files.iter_mut().find(|m| &m.key == a_path) {
                 mf.suppressed.push(Suppressed {
                     rule: "duplication".to_string(),
                     line: *a_line,
@@ -308,7 +342,13 @@ fn main() -> ExitCode {
     // Now that every pass has run, any marker still credited with nothing is unused.
     if resolved.fail_on_unused_markers {
         for mf in &marker_files {
-            let partner = dup_partners.get(&mf.path).map(String::as_str);
+            // `second_file_partner` is keyed by `fragment_b`'s canonical path → `fragment_a`'s
+            // canonical path. Look it up by this file's canonical key, then render the partner as
+            // a display path so the "move it to <fragment_a>" message reads like the rest of the
+            // output. (Falls back to the canonical path if the first file wasn't scanned.)
+            let partner = dup_partners
+                .get(&mf.key)
+                .map(|a_canon| canon_display.get(a_canon).unwrap_or(a_canon).as_str());
             findings.extend(engine.unused_marker_findings(
                 &mf.path,
                 &mf.ext,
