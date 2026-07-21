@@ -547,7 +547,10 @@ fn detect_dups(
         fs::write(dir.join(name), contents).unwrap();
     }
     let findings =
-        straitjacket::duplication::detect(std::slice::from_ref(&dir), true, min_tokens, &[]);
+        straitjacket::duplication::detect(std::slice::from_ref(&dir), true, min_tokens, &[])
+            .into_iter()
+            .map(|p| p.finding)
+            .collect();
     let _ = fs::remove_dir_all(&dir);
     findings
 }
@@ -613,7 +616,10 @@ fn detect_dups_two_packages(
         true,
         20,
         &[],
-    );
+    )
+    .into_iter()
+    .map(|p| p.finding)
+    .collect();
     let _ = fs::remove_dir_all(&dir);
     findings
 }

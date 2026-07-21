@@ -9,10 +9,22 @@ use straitjacket::config::{
     self, FileConfig, DEFAULT_DUP_MIN_TOKENS, DEFAULT_MAX_LINES, DEFAULT_MAX_NESTING,
     DEFAULT_PROSE_WINDOW,
 };
+use straitjacket::engine::{collect_markers, suppressed_between, Marker, Suppressed};
 use straitjacket::project::Projects;
 use straitjacket::react::{extract_edges, ComponentIndex, REACT_EXTS};
 use straitjacket::walk::{collect_files, display_path, ext_of};
 use straitjacket::{duplication, prop_graph, Config, Engine, Finding, Severity};
+
+/// A scanned file that carries at least one `straitjacket-allow[-file]` marker: what the
+/// unused-marker check needs to decide, after every pass, which of its markers did nothing.
+struct MarkerFile {
+    path: String,
+    ext: String,
+    markers: Vec<Marker>,
+    /// Would-be violations suppressed in this file — per-file rules first, then any
+    /// `duplication` clones dropped in the cross-file pass are appended.
+    suppressed: Vec<Suppressed>,
+}
 
 /// Flags weird code and text that LLMs tend to generate, ahead of time.
 ///
@@ -65,6 +77,11 @@ struct Cli {
     #[arg(long)]
     no_fail: bool,
 
+    /// Don't flag `straitjacket-allow[-file]` markers that suppressed nothing (the
+    /// unused-marker check is on by default).
+    #[arg(long)]
+    no_fail_on_unused_markers: bool,
+
     /// Also write a SARIF 2.1.0 report to this file (alongside the stdout output),
     /// for `github/codeql-action/upload-sarif`.
     #[arg(long, value_name = "PATH")]
@@ -109,6 +126,7 @@ struct Resolved {
     include_json: bool,
     no_ignore: bool,
     no_fail: bool,
+    fail_on_unused_markers: bool,
 }
 
 impl Resolved {
@@ -129,6 +147,7 @@ impl Resolved {
             effect_in_component: true,
             prop_drilling: true,
             store_passthrough: true,
+            fail_on_unused_markers: self.fail_on_unused_markers,
         }
     }
 }
@@ -193,6 +212,9 @@ fn main() -> ExitCode {
     let mut current_project: Option<Option<PathBuf>> = None;
 
     let mut findings: Vec<Finding> = Vec::new();
+    // Files carrying a marker, kept aside so the unused-marker check can run once every
+    // pass (including the cross-file duplication one) has had a chance to use each marker.
+    let mut marker_files: Vec<MarkerFile> = Vec::new();
     for path in &files {
         let Some(ext) = ext_of(path) else { continue };
         if !engine.handles_ext(&ext) {
@@ -211,20 +233,46 @@ fn main() -> ExitCode {
         let Ok(text) = String::from_utf8(bytes) else {
             continue;
         };
-        findings.extend(engine.scan_text(&text, &display_path(path), &ext));
+        let dp = display_path(path);
+        let visible = engine.scan_text(&text, &dp, &ext);
+        // Only files that actually carry a marker can produce an unused-marker finding.
+        // Compute the suppressed would-be violations by diffing against the candidate scan.
+        // Markdown/MDX prose is exempt: those files carry marker *syntax* as documentation
+        // examples and inline notation (`straitjacket-allow[:rule]`), which the check can't
+        // tell from a real directive — so the unused-marker check stays on code files.
+        if resolved.fail_on_unused_markers
+            && !is_doc_ext(&ext)
+            && text.contains("straitjacket-allow")
+        {
+            let markers = collect_markers(&text);
+            if !markers.is_empty() {
+                let candidates = engine.scan_text_candidates(&text, &dp, &ext);
+                let suppressed = suppressed_between(&candidates, &visible);
+                marker_files.push(MarkerFile {
+                    path: dp.clone(),
+                    ext: ext.clone(),
+                    markers,
+                    suppressed,
+                });
+            }
+        }
+        findings.extend(visible);
     }
 
     // Cross-file copy/paste detection (compiled in via cpd-finder). A clone only counts
     // *within* a project, so when boundaries are declared this runs once per project over
     // that project's files — never comparing across a package boundary. With no
     // boundaries it's a single pass over the scan paths, exactly as before.
+    // `fragment_b path → fragment_a path` for every clone, so a `duplication` marker sitting
+    // on the wrong (second) file of a clone pair can point at where it belongs.
+    let mut dup_partners: HashMap<String, String> = HashMap::new();
     let dup_suppressed = if let Some(min_tokens) = engine.duplication() {
         let ignore: Vec<String> = if engine.skip_json() {
             vec!["**/*.json".to_string()]
         } else {
             Vec::new()
         };
-        let dups = duplication::detect_partitioned(
+        let pairs = duplication::detect_partitioned(
             &resolved.paths,
             &files,
             &projects,
@@ -238,12 +286,38 @@ fn main() -> ExitCode {
         // suppression here so `allow-file:duplication` (and line markers) work for it too.
         // The dropped clones used to vanish uncounted; now they're tallied so a marker
         // masking a pile of clones is visible instead of silently reading as zero.
-        let (kept, suppressed) = duplication::partition_suppressed(dups);
-        findings.extend(kept);
-        suppressed
+        let report = duplication::partition(pairs);
+        findings.extend(report.kept);
+        // A clone dropped by a marker on its home file is a would-be violation that marker
+        // suppressed — feed it into the unused-marker reconciliation so the marker reads as
+        // used. (Per-file rules were reconciled above; duplication is cross-file.)
+        for (a_path, a_line) in &report.suppressed {
+            if let Some(mf) = marker_files.iter_mut().find(|m| &m.path == a_path) {
+                mf.suppressed.push(Suppressed {
+                    rule: "duplication".to_string(),
+                    line: *a_line,
+                });
+            }
+        }
+        dup_partners = report.second_file_partner;
+        report.tally
     } else {
         duplication::SuppressedTally::default()
     };
+
+    // Now that every pass has run, any marker still credited with nothing is unused.
+    if resolved.fail_on_unused_markers {
+        for mf in &marker_files {
+            let partner = dup_partners.get(&mf.path).map(String::as_str);
+            findings.extend(engine.unused_marker_findings(
+                &mf.path,
+                &mf.ext,
+                &mf.markers,
+                &mf.suppressed,
+                partner,
+            ));
+        }
+    }
 
     report(&resolved.format, &findings, files.len(), &dup_suppressed);
 
@@ -323,6 +397,9 @@ fn resolve(cli: &Cli) -> anyhow::Result<Resolved> {
         include_json: cli.include_json || file.include_json.unwrap_or(false),
         no_ignore: cli.no_ignore || file.no_ignore.unwrap_or(false),
         no_fail: cli.no_fail || file.no_fail.unwrap_or(false),
+        // On by default; the file can turn it off, and the CLI flag can too.
+        fail_on_unused_markers: file.fail_on_unused_markers.unwrap_or(true)
+            && !cli.no_fail_on_unused_markers,
     })
 }
 
@@ -347,6 +424,12 @@ fn load_file_config(cli: &Cli) -> anyhow::Result<FileConfig> {
         }
         None => Ok(FileConfig::default()),
     }
+}
+
+/// Markdown/MDX documentation extensions, exempt from the unused-marker check because they
+/// carry marker syntax as prose examples and notation rather than real directives.
+fn is_doc_ext(ext: &str) -> bool {
+    matches!(ext, "md" | "markdown" | "mdx")
 }
 
 fn parse_format(s: &str) -> anyhow::Result<Format> {
